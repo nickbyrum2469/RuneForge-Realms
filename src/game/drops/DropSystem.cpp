@@ -12,6 +12,19 @@ void DropSystem::spawn(items::ItemId item, std::uint16_t count, Vec3 position, V
     drops_.push_back(WorldDrop{nextId_++, item, count, position, impulse, 0.0f});
 }
 
+void DropSystem::restore(const std::vector<WorldDrop>& drops) {
+    drops_.clear();
+    nextId_ = 1;
+    for (const auto& drop : drops) {
+        if (drop.item == items::ItemId::None || drop.count == 0) continue;
+        WorldDrop restored = drop;
+        restored.id = restored.id == 0 ? nextId_ : restored.id;
+        restored.age = std::max(0.0f, restored.age);
+        nextId_ = std::max(nextId_, restored.id + 1);
+        drops_.push_back(restored);
+    }
+}
+
 void DropSystem::update(float deltaSeconds, const world::FrontierWorld& world, Vec3 playerPosition,
                         inventory::Inventory& inventory) {
     const float dt = std::clamp(deltaSeconds, 0.0f, 0.05f);
