@@ -16,6 +16,10 @@ void PlayerController::spawn(Vec3 feetPosition, float yaw, float pitch) noexcept
     jumpRequested_ = false;
 }
 
+void PlayerController::setMouseSensitivity(float scale) noexcept {
+    mouseSensitivity_ = 0.00215f * std::clamp(scale, 0.25f, 2.50f);
+}
+
 void PlayerController::setControl(MoveControl control, bool pressed) noexcept {
     switch (control) {
         case MoveControl::Forward: forward_ = pressed; break;
@@ -28,9 +32,8 @@ void PlayerController::setControl(MoveControl control, bool pressed) noexcept {
 }
 
 void PlayerController::addLook(float deltaX, float deltaY) noexcept {
-    constexpr float sensitivity = 0.00215f;
-    yaw_ += deltaX * sensitivity;
-    pitch_ = std::clamp(pitch_ - deltaY * sensitivity, -1.45f, 1.45f);
+    yaw_ += deltaX * mouseSensitivity_;
+    pitch_ = std::clamp(pitch_ - deltaY * mouseSensitivity_, -1.45f, 1.45f);
 }
 
 bool PlayerController::collides(const world::FrontierWorld& world, Vec3 position) const noexcept {
