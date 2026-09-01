@@ -301,6 +301,7 @@ void VulkanRenderer::drawSceneMeshes(VkCommandBuffer commandBuffer) {
         vkCmdDrawIndexed(commandBuffer, mesh.indexCount, 1, 0, 0, 0);
         ++visibleChunkCount_;
     }
+    drawWorldDrops(commandBuffer);
 }
 
 void VulkanRenderer::refreshSceneCounters() {
