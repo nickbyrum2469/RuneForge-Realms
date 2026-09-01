@@ -1,26 +1,46 @@
 # RuneForge Realms
 
-RuneForge Realms is the native rebuild of the former WORLDWEAVE prototype: a high-detail voxel survival/RPG sandbox where progression increases the **scale of agency** — from individual blocks, to shapes, structures, settlements, landscapes, and eventually realm-scale rules.
+RuneForge Realms is the native successor to the WORLDWEAVE browser prototype: a persistent voxel survival sandbox whose core progression increases the **scale of agency** from individual blocks to shapes, structures, settlements, landscapes and eventually world rules.
 
-## Current status
+## Status — 0.1.0 Native Foundation
 
-The previous browser/WebGL prototype is now treated as **legacy reference material only**. RuneForge Realms will be rebuilt as a native desktop game from scratch.
+This repository is now a real C++23 Windows application rather than an Electron/browser wrapper.
 
-**Hard requirements for the rebuild:**
+The first released build proves the distribution and update foundation:
 
-- No Electron and no embedded Chromium runtime.
-- Native Windows executable first, with architecture that can support additional platforms later.
-- Modern low-level renderer with direct access to GPU capabilities.
-- Highly modular source tree; no giant all-in-one source files.
-- Preserve and reimplement the proven prototype ideas instead of porting the old monolithic HTML line-for-line.
-- Versioned persistent worlds, migration support, backups, export/import, and update-safe saves.
-- A separate native updater/bootstrapper capable of checking GitHub Releases, verifying downloads, updating atomically, and rolling back on failure.
-- Visual target: richly detailed voxel/micro-voxel materials, deep lighting and atmospheric depth, and a dark carved-metal / stone / gold-trim fantasy UI with gem accents.
+- native Windows executable;
+- native C++23 hub shell using Direct2D/DirectWrite for a dependency-light first release;
+- layout based on the new RuneForge hub direction: left navigation rail, featured realm, friends panel, mode carousel, player/currency strip and news bar;
+- separate `RuneForgeBootstrap.exe` that checks the repository's latest GitHub Release before launching the game runtime;
+- rolling runtime update by replacing the `runtime/` folder only while the game is not running;
+- rollback folder retained during update swaps;
+- deterministic core model and semantic-version tests;
+- GitHub Actions CI and Windows release packaging.
 
-## Planning docs
+The temporary Direct2D hub renderer is **not** the final 3D renderer. The game-world renderer remains Vulkan-first per `docs/TECH_STACK_DECISION.md`. Keeping the bootstrap/hub foundation extremely dependency-light lets us prove releases and automatic updating before introducing the heavier Vulkan/asset stack.
 
-A native-rebuild architecture and migration plan is being developed under `docs/` before production code begins. The purpose is to lock down system boundaries, file ownership, save compatibility, rendering strategy, and migration order so the new implementation does not repeat the prototype's monolithic-code problem.
+## Run the Windows release
 
-## Legacy naming
+1. Open the repository's **Releases** page.
+2. Download `RuneForgeRealms-Windows-x64.zip` from the newest release.
+3. Extract the entire `RuneForgeRealms` folder.
+4. Run `RuneForgeBootstrap.exe`.
 
-Documentation may use `WORLDWEAVE` when describing the old prototype or historical systems. The product and repository name going forward is **RuneForge Realms**.
+From then on, the bootstrapper checks the latest GitHub Release on startup. When a newer semantic version is published, it downloads the new release, stages it, swaps the `runtime/` folder, and then launches the updated game.
+
+## Build locally on Windows
+
+```powershell
+cmake -S . -B build -A x64 -DRF_BUILD_TESTS=ON
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure
+cmake --install build --config Release --prefix staging/RuneForgeRealms
+```
+
+## Versioning rule
+
+Every user-facing pass merged to `main` must increment the root `VERSION` file and `project(... VERSION ...)` value. The release workflow creates `v<version>` and uploads the Windows package. Never reuse a published version for different code.
+
+## Architecture
+
+Read `docs/README.md` first. The old WORLDWEAVE HTML is reference material only; it is not a production dependency.
