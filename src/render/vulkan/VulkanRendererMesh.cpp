@@ -4,6 +4,7 @@
 
 #include "render/scene/ChunkCulling.h"
 #include "world/meshing/MicroDetailBuilder.h"
+#include "world/meshing/MicroVoxelMesher.h"
 
 #include <chrono>
 #include <cstring>
@@ -137,14 +138,13 @@ bool VulkanRenderer::createSceneMesh() {
     const auto playerPosition = player_.position();
     const world::ChunkCoord playerChunk = world::chunkFromWorld(playerPosition.x, playerPosition.z);
 
-    // Put only the immediate 3x3 neighborhood on the GPU synchronously. Everything farther
-    // out keeps its Dirty state and flows through the worker/upload budgets after the first frame.
     for (const world::ChunkCoord coord : world_.dirtyChunkCoords()) {
         if (world::chebyshevDistance(coord, playerChunk) > kStartupGpuRadius) continue;
         const auto snapshot = world_.chunkMeshingSnapshot(coord);
         if (!snapshot) continue;
 
         world::VoxelMesh local = world::GreedyMesher::build(*snapshot);
+        world::meshing::MicroVoxelMesher::append(*snapshot, local);
         world::meshing::MicroDetailBuilder::append(*snapshot, local);
         world::VoxelMesh translated;
         translated.append(local, static_cast<float>(coord.x * world::VoxelChunk::sizeX), 0.0f,
@@ -196,6 +196,7 @@ bool VulkanRenderer::queueChunkMesh(world::ChunkCoord coord) {
             revision,
             meshJobs_.submitResult([snapshot = *snapshot, coord]() mutable {
                 world::VoxelMesh local = world::GreedyMesher::build(snapshot);
+                world::meshing::MicroVoxelMesher::append(snapshot, local);
                 world::meshing::MicroDetailBuilder::append(snapshot, local);
                 world::VoxelMesh translated;
                 translated.append(local, static_cast<float>(coord.x * world::VoxelChunk::sizeX), 0.0f,
