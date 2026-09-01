@@ -34,11 +34,12 @@ public:
 
     [[nodiscard]] VoxelMesh buildMesh() const;
     [[nodiscard]] VoxelMesh buildChunkMesh(ChunkCoord coord) const;
-    [[nodiscard]] std::optional<VoxelChunk> chunkSnapshot(ChunkCoord coord) const;
+    [[nodiscard]] std::optional<ChunkMeshingSnapshot> chunkMeshingSnapshot(ChunkCoord coord) const;
     [[nodiscard]] std::size_t solidBlockCount() const noexcept;
     [[nodiscard]] std::size_t loadedChunkCount() const noexcept { return chunks_.loadedCount(); }
     [[nodiscard]] std::vector<ChunkCoord> loadedChunkCoords() const { return chunks_.loadedCoords(); }
-    [[nodiscard]] std::vector<ChunkCoord> takeDirtyChunkCoords();
+    [[nodiscard]] std::vector<ChunkCoord> dirtyChunkCoords() const { return chunks_.dirtyCoords(); }
+    void markChunkMeshQueued(ChunkCoord coord) noexcept { chunks_.markReady(coord); }
     [[nodiscard]] std::vector<ChunkCoord> takeUnloadedChunkCoords();
     [[nodiscard]] std::uint64_t chunkRevision(ChunkCoord coord) const noexcept { return chunks_.revision(coord); }
     [[nodiscard]] ChunkStreamingStats streamingStats() const noexcept { return chunks_.stats(); }
@@ -48,9 +49,9 @@ public:
     void clearEdits() noexcept { editsByChunk_.clear(); }
 
 private:
-    [[nodiscard]] VoxelChunk generateRawChunk(ChunkCoord coord) const;
     void applyStoredEditsToChunk(ChunkCoord coord);
     void markMeshNeighborhoodDirty(ChunkCoord coord, int localX, int localZ) noexcept;
+    void markAdjacentChunksDirty(ChunkCoord coord) noexcept;
 
     std::uint32_t seed_{1337};
     ChunkCoord streamCenter_{};
