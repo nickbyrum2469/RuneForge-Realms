@@ -53,23 +53,21 @@ if(WIN32)
     target_compile_definitions(runeforge_volk PUBLIC VK_USE_PLATFORM_WIN32_KHR)
 
     # DXC is used only at build time. tools/setup_windows_deps.ps1 installs the official
-    # Microsoft package into .deps/dxc; a system dxc is also accepted for local developers.
-    set(RF_DXC_EXECUTABLE "" CACHE FILEPATH "Path to Microsoft's dxc executable")
+    # Microsoft package into .deps/dxc/bin/x64; a system x64 dxc is also accepted locally.
+    set(RF_DXC_EXECUTABLE "" CACHE FILEPATH "Path to Microsoft's x64 dxc executable")
+    set(RF_BUNDLED_DXC "${CMAKE_SOURCE_DIR}/.deps/dxc/bin/x64/dxc.exe")
     if(NOT RF_DXC_EXECUTABLE)
-        find_program(RF_DXC_FROM_PATH NAMES dxc)
-        if(RF_DXC_FROM_PATH)
-            set(RF_DXC_EXECUTABLE "${RF_DXC_FROM_PATH}" CACHE FILEPATH "Path to Microsoft's dxc executable" FORCE)
+        if(EXISTS "${RF_BUNDLED_DXC}")
+            set(RF_DXC_EXECUTABLE "${RF_BUNDLED_DXC}" CACHE FILEPATH "Path to Microsoft's x64 dxc executable" FORCE)
         else()
-            file(GLOB_RECURSE RF_DXC_CANDIDATES LIST_DIRECTORIES FALSE
-                "${CMAKE_SOURCE_DIR}/.deps/dxc/dxc.exe")
-            if(RF_DXC_CANDIDATES)
-                list(GET RF_DXC_CANDIDATES 0 RF_DXC_DISCOVERED)
-                set(RF_DXC_EXECUTABLE "${RF_DXC_DISCOVERED}" CACHE FILEPATH "Path to Microsoft's dxc executable" FORCE)
+            find_program(RF_DXC_FROM_PATH NAMES dxc)
+            if(RF_DXC_FROM_PATH)
+                set(RF_DXC_EXECUTABLE "${RF_DXC_FROM_PATH}" CACHE FILEPATH "Path to Microsoft's x64 dxc executable" FORCE)
             endif()
         endif()
     endif()
     if(NOT RF_DXC_EXECUTABLE OR NOT EXISTS "${RF_DXC_EXECUTABLE}")
-        message(FATAL_ERROR "DXC was not found. Run: pwsh -File tools/setup_windows_deps.ps1")
+        message(FATAL_ERROR "DXC x64 was not found. Run: pwsh -File tools/setup_windows_deps.ps1")
     endif()
 
     set(RF_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/voxel_scene.hlsl")
