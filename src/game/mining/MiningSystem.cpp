@@ -18,7 +18,7 @@ int MiningSystem::microChipRadius(world::BlockId block, MiningMode mode) noexcep
         switch (block) {
             case world::BlockId::Leaves: return 2;
             case world::BlockId::Grass:
-            case world::BlockId::Dirt: return 1;
+            case world::BlockId::Dirt:
             case world::BlockId::Stone:
             case world::BlockId::Wood: return 1;
             case world::BlockId::Air: return 0;
@@ -43,7 +43,7 @@ MiningOutcome MiningSystem::strike(world::FrontierWorld& world, const world::Ray
     const float power = std::max(toolPower, 0.05f);
 
     if (mode_ == MiningMode::Micro) {
-        const auto chip = world.chipBlock(hit.block, hit.hitX, hit.hitY, hit.hitZ,
+        const auto chip = world.chipBlock(hit.block, hit.worldX, hit.worldY, hit.worldZ,
                                          microChipRadius(block, mode_));
         result.affected = chip.changed;
         result.microCellsRemoved = chip.removedCells;
@@ -59,7 +59,7 @@ MiningOutcome MiningSystem::strike(world::FrontierWorld& world, const world::Ray
     damage += std::clamp((0.34f * power) / (hardness + 0.34f), 0.06f, 0.72f);
 
     if (mode_ == MiningMode::Mixed) {
-        const auto chip = world.chipBlock(hit.block, hit.hitX, hit.hitY, hit.hitZ,
+        const auto chip = world.chipBlock(hit.block, hit.worldX, hit.worldY, hit.worldZ,
                                          microChipRadius(block, mode_));
         result.microCellsRemoved = chip.removedCells;
         result.affected = chip.changed;
