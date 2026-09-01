@@ -10,6 +10,7 @@ int main() {
     runCullingTests();
     runMicroMiningTests();
     runInventoryGrowthTests();
+    runDropTests();
 
     std::cout << "RuneForge 0.4.0 visual-survival tests passed\n";
     return 0;
