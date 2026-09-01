@@ -4,6 +4,9 @@
 
 #include "core/jobs/JobSystem.h"
 #include "game/PlayerController.h"
+#include "game/drops/DropSystem.h"
+#include "game/inventory/Inventory.h"
+#include "game/mining/MiningSystem.h"
 #include "world/FrontierWorld.h"
 
 #include <array>
@@ -46,7 +49,10 @@ public:
     [[nodiscard]] const std::string& gpuName() const noexcept { return gpuName_; }
     [[nodiscard]] std::uint32_t sceneQuadCount() const noexcept { return sceneQuadCount_; }
     [[nodiscard]] std::uint32_t sceneBlockCount() const noexcept { return sceneBlockCount_; }
-    [[nodiscard]] world::BlockId selectedBlock() const noexcept { return selectedBlock_; }
+    [[nodiscard]] const game::inventory::Inventory& inventory() const noexcept { return inventory_; }
+    [[nodiscard]] game::mining::MiningMode miningMode() const noexcept { return mining_.mode(); }
+    [[nodiscard]] const std::vector<game::drops::WorldDrop>& worldDrops() const noexcept { return drops_.drops(); }
+    [[nodiscard]] std::optional<world::BlockId> selectedPlacementBlock() const noexcept;
 
 private:
     struct QueueFamilies {
@@ -100,8 +106,8 @@ private:
         float viewportWidth{1600.0f};
         float viewportHeight{900.0f};
         float selectedMaterial{};
-        float pad0{};
-        float pad1{};
+        float miningMode{};
+        float miningProgress{};
     };
 
     static constexpr std::size_t kFramesInFlight = 1;
@@ -131,8 +137,9 @@ private:
     void updateGameplay(float deltaSeconds);
     void updatePushData(float elapsedSeconds);
     void updateWindowTitle();
-    void breakTargetBlock();
+    void mineTargetBlock();
     void placeTargetBlock();
+    void spawnBlockDrop(world::BlockId block, const world::RaycastHit& hit);
 
     bool queueChunkMesh(world::ChunkCoord coord);
     void queueDirtyChunkMeshes();
@@ -185,7 +192,12 @@ private:
 
     world::FrontierWorld world_;
     game::PlayerController player_;
-    world::BlockId selectedBlock_{world::BlockId::Dirt};
+    game::inventory::Inventory inventory_;
+    game::mining::MiningSystem mining_;
+    game::drops::DropSystem drops_;
+    std::map<world::BlockId, std::size_t> microHarvestCells_;
+    std::optional<world::BlockCoord> currentMiningTarget_;
+    float currentMiningProgress_{};
 
     VkInstance instance_{VK_NULL_HANDLE};
     VkSurfaceKHR surface_{VK_NULL_HANDLE};
