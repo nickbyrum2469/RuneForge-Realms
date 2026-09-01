@@ -41,6 +41,8 @@ struct ChunkMeshingSnapshot {
     std::vector<micro::MicroBlockSnapshot> microBlocks;
     std::uint32_t worldSeed{};
     float worldAgeSeconds{};
+    int worldOriginX{};
+    int worldOriginZ{};
 };
 
 class GreedyMesher {
