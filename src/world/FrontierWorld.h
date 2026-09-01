@@ -13,6 +13,13 @@
 
 namespace rf::world {
 
+struct MicroChipResult {
+    bool changed{false};
+    bool emptied{false};
+    std::size_t removedCells{};
+    float solidFraction{1.0f};
+};
+
 class FrontierWorld {
 public:
     static constexpr int initialChunkRadius = 3;
@@ -22,11 +29,16 @@ public:
 
     void generate(std::uint32_t seed);
     [[nodiscard]] bool updateStreaming(float worldX, float worldZ);
+    [[nodiscard]] bool advanceSimulation(float deltaSeconds);
 
     [[nodiscard]] std::uint32_t seed() const noexcept { return seed_; }
+    [[nodiscard]] float worldAgeSeconds() const noexcept { return worldAgeSeconds_; }
+    void setWorldAgeSeconds(float value) noexcept;
+
     [[nodiscard]] BlockId getBlock(int x, int y, int z) const noexcept;
     bool setBlock(int x, int y, int z, BlockId block, bool recordEdit = true);
-    bool chipBlock(const RaycastHit& hit);
+    [[nodiscard]] MicroChipResult chipBlock(BlockCoord position, float worldHitX, float worldHitY,
+                                            float worldHitZ, int radiusCells);
     [[nodiscard]] const micro::MicroVoxelState* microState(BlockCoord position) const noexcept;
     [[nodiscard]] int topSolidY(int x, int z) const noexcept;
     [[nodiscard]] bool collidesAabb(float minX, float minY, float minZ,
@@ -40,6 +52,7 @@ public:
     [[nodiscard]] std::optional<ChunkMeshingSnapshot> chunkMeshingSnapshot(ChunkCoord coord) const;
     [[nodiscard]] std::size_t solidBlockCount() const noexcept;
     [[nodiscard]] std::size_t loadedChunkCount() const noexcept { return chunks_.loadedCount(); }
+    [[nodiscard]] std::size_t promotedBlockCount() const noexcept;
     [[nodiscard]] std::vector<ChunkCoord> loadedChunkCoords() const { return chunks_.loadedCoords(); }
     [[nodiscard]] std::vector<ChunkCoord> dirtyChunkCoords() const { return chunks_.dirtyCoords(); }
     void markChunkMeshQueued(ChunkCoord coord) noexcept { chunks_.markReady(coord); }
@@ -62,11 +75,15 @@ private:
     void applyStoredEditsToChunk(ChunkCoord coord);
     void markMeshNeighborhoodDirty(ChunkCoord coord, int localX, int localZ) noexcept;
     void markAdjacentChunksDirty(ChunkCoord coord) noexcept;
+    void markAllLoadedDirty() noexcept;
     [[nodiscard]] bool microCollides(BlockCoord block, const micro::MicroVoxelState& state,
                                      float minX, float minY, float minZ,
                                      float maxX, float maxY, float maxZ) const noexcept;
+    [[nodiscard]] const PromotedBlock* promotedBlock(BlockCoord position) const noexcept;
 
     std::uint32_t seed_{1337};
+    float worldAgeSeconds_{};
+    std::uint32_t growthEpoch_{};
     ChunkCoord streamCenter_{};
     ChunkManager chunks_;
     std::map<ChunkCoord, std::map<BlockCoord, BlockId>> editsByChunk_;
