@@ -79,7 +79,7 @@ if(WIN32)
         OUTPUT "${RF_VERTEX_SPV}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${RF_SHADER_OUTPUT_DIR}"
         COMMAND "${RF_DXC_EXECUTABLE}" -spirv -T vs_6_6 -E VSMain
-                -fspv-target-env=vulkan1.3 -fvk-use-dx-layout -Qstrip_debug -Qstrip_reflect
+                -fspv-target-env=vulkan1.3 -fvk-use-dx-layout
                 -Fo "${RF_VERTEX_SPV}" "${RF_SHADER_SOURCE}"
         DEPENDS "${RF_SHADER_SOURCE}"
         VERBATIM
@@ -89,7 +89,7 @@ if(WIN32)
         OUTPUT "${RF_FRAGMENT_SPV}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${RF_SHADER_OUTPUT_DIR}"
         COMMAND "${RF_DXC_EXECUTABLE}" -spirv -T ps_6_6 -E PSMain
-                -fspv-target-env=vulkan1.3 -fvk-use-dx-layout -Qstrip_debug -Qstrip_reflect
+                -fspv-target-env=vulkan1.3 -fvk-use-dx-layout
                 -Fo "${RF_FRAGMENT_SPV}" "${RF_SHADER_SOURCE}"
         DEPENDS "${RF_SHADER_SOURCE}"
         VERBATIM
