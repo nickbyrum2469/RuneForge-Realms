@@ -8,7 +8,10 @@ int main() {
     runWorldTests();
     runPersistenceTests();
     runCullingTests();
+    runMicroMiningTests();
+    runInventoryGrowthTests();
+    runDropTests();
 
-    std::cout << "RuneForge 0.3.2 engine-scale tests passed\n";
+    std::cout << "RuneForge 0.4.0 visual-survival tests passed\n";
     return 0;
 }

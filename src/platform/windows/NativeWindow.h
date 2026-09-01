@@ -4,6 +4,7 @@
 
 #include "render/vulkan/VulkanRenderer.h"
 #include "ui/HubPainter.h"
+#include "ui/inventory/InventoryPainter.h"
 
 #include <filesystem>
 #include <memory>
@@ -20,12 +21,14 @@ public:
     int run();
 
 private:
-    enum class ViewMode { Hub, Frontier };
+    enum class ViewMode { Hub, Frontier, Inventory };
 
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT handleMessage(UINT message, WPARAM wParam, LPARAM lParam);
     void handleAction(rf::ui::HubAction action);
     void enterFrontier(bool continueExisting);
+    void openInventory();
+    void closeInventory();
     void returnToHub();
     void captureMouse();
     void releaseMouse();
@@ -37,6 +40,7 @@ private:
     ViewMode mode_{ViewMode::Hub};
     bool mouseCaptured_{false};
     std::unique_ptr<rf::ui::HubPainter> painter_;
+    std::unique_ptr<rf::ui::inventory::InventoryPainter> inventoryPainter_;
     std::unique_ptr<rf::render::VulkanRenderer> renderer_;
 };
 

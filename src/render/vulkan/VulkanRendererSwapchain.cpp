@@ -222,13 +222,24 @@ void VulkanRenderer::destroySwapchainResources() {
     if (depthImageView_ != VK_NULL_HANDLE) vkDestroyImageView(device_, depthImageView_, nullptr);
     if (depthImage_ != VK_NULL_HANDLE) vkDestroyImage(device_, depthImage_, nullptr);
     if (depthMemory_ != VK_NULL_HANDLE) vkFreeMemory(device_, depthMemory_, nullptr);
-    depthImageView_ = VK_NULL_HANDLE; depthImage_ = VK_NULL_HANDLE; depthMemory_ = VK_NULL_HANDLE;
+    depthImageView_ = VK_NULL_HANDLE;
+    depthImage_ = VK_NULL_HANDLE;
+    depthMemory_ = VK_NULL_HANDLE;
+
+    if (hudPipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, hudPipeline_, nullptr);
     if (pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, pipeline_, nullptr);
+    if (skyPipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, skyPipeline_, nullptr);
     if (pipelineLayout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr);
     if (renderPass_ != VK_NULL_HANDLE) vkDestroyRenderPass(device_, renderPass_, nullptr);
-    pipeline_ = VK_NULL_HANDLE; pipelineLayout_ = VK_NULL_HANDLE; renderPass_ = VK_NULL_HANDLE;
+    hudPipeline_ = VK_NULL_HANDLE;
+    pipeline_ = VK_NULL_HANDLE;
+    skyPipeline_ = VK_NULL_HANDLE;
+    pipelineLayout_ = VK_NULL_HANDLE;
+    renderPass_ = VK_NULL_HANDLE;
+
     for (auto view : swapchainImageViews_) if (view != VK_NULL_HANDLE) vkDestroyImageView(device_, view, nullptr);
-    swapchainImageViews_.clear(); swapchainImages_.clear();
+    swapchainImageViews_.clear();
+    swapchainImages_.clear();
     if (swapchain_ != VK_NULL_HANDLE) vkDestroySwapchainKHR(device_, swapchain_, nullptr);
     swapchain_ = VK_NULL_HANDLE;
 }

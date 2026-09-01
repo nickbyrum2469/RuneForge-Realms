@@ -3,7 +3,10 @@
 #include "render/vulkan/VulkanRenderer.h"
 
 #include "render/scene/ChunkCulling.h"
+#include "world/meshing/MicroDetailBuilder.h"
+#include "world/meshing/MicroVoxelMesher.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 #include <limits>
@@ -99,7 +102,17 @@ void VulkanRenderer::destroyChunkMesh(GpuChunkMesh& mesh) {
     mesh = {};
 }
 
+world::meshing::SurfaceDetailTier VulkanRenderer::surfaceDetailTierFor(world::ChunkCoord coord) const noexcept {
+    const auto position = player_.position();
+    const world::ChunkCoord playerChunk = world::chunkFromWorld(position.x, position.z);
+    const int distance = world::chebyshevDistance(coord, playerChunk);
+    if (distance <= kHeroDetailRadius) return world::meshing::SurfaceDetailTier::Hero;
+    if (distance <= kStandardDetailRadius) return world::meshing::SurfaceDetailTier::Standard;
+    return world::meshing::SurfaceDetailTier::Distant;
+}
+
 bool VulkanRenderer::uploadChunkMesh(world::ChunkCoord coord, std::uint64_t revision,
+                                     world::meshing::SurfaceDetailTier detailTier,
                                      const world::VoxelMesh& mesh, std::uint32_t solidBlockCount) {
     if (mesh.empty()) {
         if (auto existing = chunkMeshes_.find(coord); existing != chunkMeshes_.end()) {
@@ -124,6 +137,7 @@ bool VulkanRenderer::uploadChunkMesh(world::ChunkCoord coord, std::uint64_t revi
     replacement.quadCount = mesh.quadCount;
     replacement.solidBlockCount = solidBlockCount;
     replacement.revision = revision;
+    replacement.detailTier = detailTier;
 
     auto existing = chunkMeshes_.find(coord);
     if (existing != chunkMeshes_.end()) destroyChunkMesh(existing->second);
@@ -136,18 +150,19 @@ bool VulkanRenderer::createSceneMesh() {
     const auto playerPosition = player_.position();
     const world::ChunkCoord playerChunk = world::chunkFromWorld(playerPosition.x, playerPosition.z);
 
-    // Put only the immediate 3x3 neighborhood on the GPU synchronously. Everything farther
-    // out keeps its Dirty state and flows through the worker/upload budgets after the first frame.
     for (const world::ChunkCoord coord : world_.dirtyChunkCoords()) {
         if (world::chebyshevDistance(coord, playerChunk) > kStartupGpuRadius) continue;
         const auto snapshot = world_.chunkMeshingSnapshot(coord);
         if (!snapshot) continue;
 
+        const auto detailTier = surfaceDetailTierFor(coord);
         world::VoxelMesh local = world::GreedyMesher::build(*snapshot);
+        world::meshing::MicroVoxelMesher::append(*snapshot, local);
+        world::meshing::MicroDetailBuilder::append(*snapshot, local, detailTier);
         world::VoxelMesh translated;
         translated.append(local, static_cast<float>(coord.x * world::VoxelChunk::sizeX), 0.0f,
                           static_cast<float>(coord.z * world::VoxelChunk::sizeZ));
-        if (!uploadChunkMesh(coord, world_.chunkRevision(coord), translated,
+        if (!uploadChunkMesh(coord, world_.chunkRevision(coord), detailTier, translated,
                              static_cast<std::uint32_t>(snapshot->center.solidBlockCount()))) {
             return false;
         }
@@ -163,9 +178,10 @@ bool VulkanRenderer::createSceneMesh() {
     return true;
 }
 
-bool VulkanRenderer::meshJobPending(world::ChunkCoord coord, std::uint64_t revision) const noexcept {
+bool VulkanRenderer::meshJobPending(world::ChunkCoord coord, std::uint64_t revision,
+                                    world::meshing::SurfaceDetailTier detailTier) const noexcept {
     for (const auto& pending : pendingChunkMeshes_) {
-        if (pending.coord == coord && pending.revision == revision) return true;
+        if (pending.coord == coord && pending.revision == revision && pending.detailTier == detailTier) return true;
     }
     return false;
 }
@@ -173,13 +189,15 @@ bool VulkanRenderer::meshJobPending(world::ChunkCoord coord, std::uint64_t revis
 bool VulkanRenderer::queueChunkMesh(world::ChunkCoord coord) {
     const std::uint64_t revision = world_.chunkRevision(coord);
     if (revision == 0) return false;
+    const auto detailTier = surfaceDetailTierFor(coord);
 
     if (const auto existing = chunkMeshes_.find(coord);
-        existing != chunkMeshes_.end() && existing->second.revision == revision) {
+        existing != chunkMeshes_.end() && existing->second.revision == revision &&
+        existing->second.detailTier == detailTier) {
         world_.markChunkMeshQueued(coord);
         return false;
     }
-    if (meshJobPending(coord, revision)) {
+    if (meshJobPending(coord, revision, detailTier)) {
         world_.markChunkMeshQueued(coord);
         return false;
     }
@@ -192,8 +210,11 @@ bool VulkanRenderer::queueChunkMesh(world::ChunkCoord coord) {
         pendingChunkMeshes_.push_back(PendingChunkMesh{
             coord,
             revision,
-            meshJobs_.submitResult([snapshot = *snapshot, coord]() mutable {
+            detailTier,
+            meshJobs_.submitResult([snapshot = *snapshot, coord, detailTier]() mutable {
                 world::VoxelMesh local = world::GreedyMesher::build(snapshot);
+                world::meshing::MicroVoxelMesher::append(snapshot, local);
+                world::meshing::MicroDetailBuilder::append(snapshot, local, detailTier);
                 world::VoxelMesh translated;
                 translated.append(local, static_cast<float>(coord.x * world::VoxelChunk::sizeX), 0.0f,
                                   static_cast<float>(coord.z * world::VoxelChunk::sizeZ));
@@ -209,8 +230,19 @@ bool VulkanRenderer::queueChunkMesh(world::ChunkCoord coord) {
 }
 
 void VulkanRenderer::queueDirtyChunkMeshes() {
+    auto coords = world_.loadedChunkCoords();
+    const auto position = player_.position();
+    const world::ChunkCoord playerChunk = world::chunkFromWorld(position.x, position.z);
+    std::sort(coords.begin(), coords.end(), [playerChunk](world::ChunkCoord a, world::ChunkCoord b) {
+        const int da = world::chebyshevDistance(a, playerChunk);
+        const int db = world::chebyshevDistance(b, playerChunk);
+        if (da != db) return da < db;
+        if (a.x != b.x) return a.x < b.x;
+        return a.z < b.z;
+    });
+
     int scheduled = 0;
-    for (const world::ChunkCoord coord : world_.dirtyChunkCoords()) {
+    for (const world::ChunkCoord coord : coords) {
         if (scheduled >= kMeshScheduleBudgetPerFrame || pendingChunkMeshes_.size() >= kMaxPendingChunkMeshes) break;
         if (queueChunkMesh(coord)) ++scheduled;
     }
@@ -229,12 +261,14 @@ void VulkanRenderer::pumpChunkMeshJobs() {
 
         const world::ChunkCoord coord = it->coord;
         const std::uint64_t revision = it->revision;
+        const auto detailTier = it->detailTier;
         world::VoxelMesh mesh = it->future.get();
         it = pendingChunkMeshes_.erase(it);
         if (world_.chunkRevision(coord) != revision) continue;
+        if (surfaceDetailTierFor(coord) != detailTier) continue;
         const auto snapshot = world_.chunkMeshingSnapshot(coord);
         if (!snapshot) continue;
-        if (!uploadChunkMesh(coord, revision, mesh,
+        if (!uploadChunkMesh(coord, revision, detailTier, mesh,
                              static_cast<std::uint32_t>(snapshot->center.solidBlockCount()))) {
             return;
         }
@@ -267,6 +301,7 @@ void VulkanRenderer::drawSceneMeshes(VkCommandBuffer commandBuffer) {
         vkCmdDrawIndexed(commandBuffer, mesh.indexCount, 1, 0, 0, 0);
         ++visibleChunkCount_;
     }
+    drawWorldDrops(commandBuffer);
 }
 
 void VulkanRenderer::refreshSceneCounters() {

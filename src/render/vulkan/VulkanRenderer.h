@@ -4,7 +4,11 @@
 
 #include "core/jobs/JobSystem.h"
 #include "game/PlayerController.h"
+#include "game/drops/DropSystem.h"
+#include "game/inventory/Inventory.h"
+#include "game/mining/MiningSystem.h"
 #include "world/FrontierWorld.h"
+#include "world/meshing/MicroDetailBuilder.h"
 
 #include <array>
 #include <chrono>
@@ -46,7 +50,10 @@ public:
     [[nodiscard]] const std::string& gpuName() const noexcept { return gpuName_; }
     [[nodiscard]] std::uint32_t sceneQuadCount() const noexcept { return sceneQuadCount_; }
     [[nodiscard]] std::uint32_t sceneBlockCount() const noexcept { return sceneBlockCount_; }
-    [[nodiscard]] world::BlockId selectedBlock() const noexcept { return selectedBlock_; }
+    [[nodiscard]] const game::inventory::Inventory& inventory() const noexcept { return inventory_; }
+    [[nodiscard]] game::mining::MiningMode miningMode() const noexcept { return mining_.mode(); }
+    [[nodiscard]] const std::vector<game::drops::WorldDrop>& worldDrops() const noexcept { return drops_.drops(); }
+    [[nodiscard]] std::optional<world::BlockId> selectedPlacementBlock() const noexcept;
 
 private:
     struct QueueFamilies {
@@ -81,11 +88,13 @@ private:
         std::uint32_t quadCount{};
         std::uint32_t solidBlockCount{};
         std::uint64_t revision{};
+        world::meshing::SurfaceDetailTier detailTier{world::meshing::SurfaceDetailTier::Distant};
     };
 
     struct PendingChunkMesh {
         world::ChunkCoord coord{};
         std::uint64_t revision{};
+        world::meshing::SurfaceDetailTier detailTier{world::meshing::SurfaceDetailTier::Distant};
         std::future<world::VoxelMesh> future;
     };
 
@@ -100,14 +109,20 @@ private:
         float viewportWidth{1600.0f};
         float viewportHeight{900.0f};
         float selectedMaterial{};
-        float pad0{};
-        float pad1{};
+        float miningMode{};
+        float miningProgress{};
+        float targetBlockX{};
+        float targetBlockY{};
+        float targetBlockZ{};
+        float targetActive{};
     };
 
     static constexpr std::size_t kFramesInFlight = 1;
     static constexpr int kStartupGpuRadius = 1;
     static constexpr int kMeshScheduleBudgetPerFrame = 12;
     static constexpr std::size_t kMaxPendingChunkMeshes = 64;
+    static constexpr int kHeroDetailRadius = 2;
+    static constexpr int kStandardDetailRadius = 4;
 
     bool initializeSession();
     bool createInstance();
@@ -131,8 +146,9 @@ private:
     void updateGameplay(float deltaSeconds);
     void updatePushData(float elapsedSeconds);
     void updateWindowTitle();
-    void breakTargetBlock();
+    void mineTargetBlock();
     void placeTargetBlock();
+    void spawnBlockDrop(world::BlockId block, const world::RaycastHit& hit);
 
     bool queueChunkMesh(world::ChunkCoord coord);
     void queueDirtyChunkMeshes();
@@ -140,10 +156,19 @@ private:
     void removeUnloadedChunkMeshes();
     void drawSceneMeshes(VkCommandBuffer commandBuffer);
     void refreshSceneCounters();
-    [[nodiscard]] bool meshJobPending(world::ChunkCoord coord, std::uint64_t revision) const noexcept;
+    [[nodiscard]] bool meshJobPending(world::ChunkCoord coord, std::uint64_t revision,
+                                      world::meshing::SurfaceDetailTier detailTier) const noexcept;
+    [[nodiscard]] world::meshing::SurfaceDetailTier surfaceDetailTierFor(world::ChunkCoord coord) const noexcept;
     bool uploadChunkMesh(world::ChunkCoord coord, std::uint64_t revision,
+                         world::meshing::SurfaceDetailTier detailTier,
                          const world::VoxelMesh& mesh, std::uint32_t solidBlockCount);
     void destroyChunkMesh(GpuChunkMesh& mesh);
+
+    bool updateDropMesh();
+    void drawWorldDrops(VkCommandBuffer commandBuffer);
+    void destroyDropMesh();
+    bool ensureDynamicBuffer(BufferResource& resource, VkDeviceSize requiredSize, VkBufferUsageFlags usage);
+    bool writeDynamicBuffer(BufferResource& resource, const void* data, VkDeviceSize size);
 
     QueueFamilies findQueueFamilies(VkPhysicalDevice device) const;
     SwapchainSupport querySwapchainSupport(VkPhysicalDevice device) const;
@@ -185,7 +210,12 @@ private:
 
     world::FrontierWorld world_;
     game::PlayerController player_;
-    world::BlockId selectedBlock_{world::BlockId::Dirt};
+    game::inventory::Inventory inventory_;
+    game::mining::MiningSystem mining_;
+    game::drops::DropSystem drops_;
+    std::map<world::BlockId, std::size_t> microHarvestCells_;
+    std::optional<world::BlockCoord> currentMiningTarget_;
+    float currentMiningProgress_{};
 
     VkInstance instance_{VK_NULL_HANDLE};
     VkSurfaceKHR surface_{VK_NULL_HANDLE};
@@ -204,7 +234,9 @@ private:
 
     VkRenderPass renderPass_{VK_NULL_HANDLE};
     VkPipelineLayout pipelineLayout_{VK_NULL_HANDLE};
+    VkPipeline skyPipeline_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
+    VkPipeline hudPipeline_{VK_NULL_HANDLE};
 
     VkFormat depthFormat_{VK_FORMAT_UNDEFINED};
     VkImage depthImage_{VK_NULL_HANDLE};
@@ -222,6 +254,10 @@ private:
     std::uint32_t sceneQuadCount_{0};
     std::uint32_t sceneBlockCount_{0};
     std::uint32_t visibleChunkCount_{0};
+
+    BufferResource dropVertices_{};
+    BufferResource dropIndices_{};
+    std::uint32_t dropIndexCount_{};
 
     std::chrono::steady_clock::time_point startTime_{};
     std::chrono::steady_clock::time_point lastFrameTime_{};

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "world/Block.h"
+#include "world/micro/MicroVoxelState.h"
 
 #include <compare>
 
@@ -22,6 +23,11 @@ struct RaycastHit {
     bool hit{false};
     BlockCoord block{};
     BlockCoord adjacent{};
+    micro::MicroCoord micro{};
+    float worldX{};
+    float worldY{};
+    float worldZ{};
+    bool microResolved{false};
 };
 
 } // namespace rf::world

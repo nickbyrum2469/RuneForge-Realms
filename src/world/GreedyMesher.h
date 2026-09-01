@@ -1,6 +1,7 @@
 #pragma once
 
 #include "world/VoxelChunk.h"
+#include "world/micro/MicroBlockSnapshot.h"
 
 #include <cstdint>
 #include <optional>
@@ -27,15 +28,21 @@ struct VoxelMesh {
     void append(const VoxelMesh& source, float offsetX, float offsetY, float offsetZ);
 };
 
-// Owns the center chunk plus the four horizontal neighbors needed to decide whether
-// boundary faces are actually visible. Copies are intentional: worker-thread meshing
-// can safely consume this snapshot after the live world has streamed or changed.
+// Owns an immutable chunk snapshot plus the horizontal neighborhood needed for safe
+// background meshing. Persistent damaged blocks and temporary full-resolution halo blocks
+// live in microBlocks. The same 8x8x8 visual grid is used before and after damage so a hit
+// never causes an obvious resolution switch.
 struct ChunkMeshingSnapshot {
     VoxelChunk center;
     std::optional<VoxelChunk> negativeX;
     std::optional<VoxelChunk> positiveX;
     std::optional<VoxelChunk> negativeZ;
     std::optional<VoxelChunk> positiveZ;
+    std::vector<micro::MicroBlockSnapshot> microBlocks;
+    std::uint32_t worldSeed{};
+    float worldAgeSeconds{};
+    int worldOriginX{};
+    int worldOriginZ{};
 };
 
 class GreedyMesher {
