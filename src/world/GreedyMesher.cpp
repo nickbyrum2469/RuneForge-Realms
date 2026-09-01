@@ -23,7 +23,6 @@ constexpr std::array<int, 3> dimensions{VoxelChunk::sizeX, VoxelChunk::sizeY, Vo
 
 BlockId sample(const ChunkMeshingSnapshot& snapshot, int x, int y, int z) noexcept {
     if (y < 0 || y >= VoxelChunk::sizeY) return BlockId::Air;
-
     if (x < 0) return snapshot.negativeX ? snapshot.negativeX->get(VoxelChunk::sizeX - 1, y, z) : BlockId::Air;
     if (x >= VoxelChunk::sizeX) return snapshot.positiveX ? snapshot.positiveX->get(0, y, z) : BlockId::Air;
     if (z < 0) return snapshot.negativeZ ? snapshot.negativeZ->get(x, y, VoxelChunk::sizeZ - 1) : BlockId::Air;
@@ -39,6 +38,34 @@ std::uint8_t damageStageAt(const ChunkMeshingSnapshot& snapshot, int x, int y, i
     return 0;
 }
 
+FaceKey visibleFace(const ChunkMeshingSnapshot& snapshot, BlockId a, BlockId b,
+                    const std::array<int,3>& pa, const std::array<int,3>& pb,
+                    int axis) noexcept {
+    if (a == b) return {};
+
+    // Opaque terrain owns the shared boundary against water/leaves so the wall remains visible
+    // through transparency without z-fighting a second coplanar transparent face.
+    if (isOpaque(a) && !isOpaque(b)) {
+        return {true, +1, surfaceMaterial(a, axis, +1), damageStageAt(snapshot, pa[0], pa[1], pa[2])};
+    }
+    if (!isOpaque(a) && isOpaque(b)) {
+        return {true, -1, surfaceMaterial(b, axis, -1), damageStageAt(snapshot, pb[0], pb[1], pb[2])};
+    }
+
+    if (isRenderable(a) && !isRenderable(b)) {
+        return {true, +1, surfaceMaterial(a, axis, +1), damageStageAt(snapshot, pa[0], pa[1], pa[2])};
+    }
+    if (!isRenderable(a) && isRenderable(b)) {
+        return {true, -1, surfaceMaterial(b, axis, -1), damageStageAt(snapshot, pb[0], pb[1], pb[2])};
+    }
+
+    // If two different transparent families touch, prefer foliage over fluid at the coplanar
+    // boundary; water is still visible around/through the alpha-clipped canopy.
+    if (a == BlockId::Leaves && b == BlockId::Water) return {true, +1, SurfaceMaterial::Leaves, 0};
+    if (a == BlockId::Water && b == BlockId::Leaves) return {true, -1, SurfaceMaterial::Leaves, 0};
+    return {};
+}
+
 void emitQuad(VoxelMesh& mesh, const std::array<int, 3>& origin,
               const std::array<int, 3>& du, const std::array<int, 3>& dv,
               int axis, int sign, SurfaceMaterial material, std::uint8_t damageStage) {
@@ -48,7 +75,6 @@ void emitQuad(VoxelMesh& mesh, const std::array<int, 3>& origin,
         axis == 2 ? static_cast<float>(sign) : 0.0f,
     };
     const std::uint32_t packed = packMaterial(material, damageStage);
-
     auto vertex = [&](const std::array<int, 3>& p) {
         return MeshVertex{static_cast<float>(p[0]), static_cast<float>(p[1]), static_cast<float>(p[2]),
                           normal[0], normal[1], normal[2], packed};
@@ -108,15 +134,7 @@ VoxelMesh GreedyMesher::build(const ChunkMeshingSnapshot& snapshot) {
                     a[v] = b[v] = j;
                     const BlockId blockA = sample(snapshot, a[0], a[1], a[2]);
                     const BlockId blockB = sample(snapshot, b[0], b[1], b[2]);
-                    FaceKey face{};
-                    if (isSolid(blockA) && !isSolid(blockB)) {
-                        face = {true, +1, surfaceMaterial(blockA, axis, +1),
-                                damageStageAt(snapshot, a[0], a[1], a[2])};
-                    } else if (!isSolid(blockA) && isSolid(blockB)) {
-                        face = {true, -1, surfaceMaterial(blockB, axis, -1),
-                                damageStageAt(snapshot, b[0], b[1], b[2])};
-                    }
-                    mask[static_cast<std::size_t>(i + width * j)] = face;
+                    mask[static_cast<std::size_t>(i + width * j)] = visibleFace(snapshot, blockA, blockB, a, b, axis);
                 }
             }
 
@@ -124,11 +142,8 @@ VoxelMesh GreedyMesher::build(const ChunkMeshingSnapshot& snapshot) {
                 for (int i = 0; i < width;) {
                     const FaceKey key = mask[static_cast<std::size_t>(i + width * j)];
                     if (!key.visible) { ++i; continue; }
-
                     int rectWidth = 1;
-                    while (i + rectWidth < width &&
-                           mask[static_cast<std::size_t>(i + rectWidth + width * j)] == key) ++rectWidth;
-
+                    while (i + rectWidth < width && mask[static_cast<std::size_t>(i + rectWidth + width * j)] == key) ++rectWidth;
                     int rectHeight = 1;
                     bool grow = true;
                     while (j + rectHeight < height && grow) {
@@ -150,11 +165,8 @@ VoxelMesh GreedyMesher::build(const ChunkMeshingSnapshot& snapshot) {
                     du[u] = rectWidth;
                     dv[v] = rectHeight;
                     emitQuad(mesh, origin, du, dv, axis, key.sign, key.material, key.damageStage);
-
                     for (int y = 0; y < rectHeight; ++y) {
-                        for (int x = 0; x < rectWidth; ++x) {
-                            mask[static_cast<std::size_t>(i + x + width * (j + y))] = {};
-                        }
+                        for (int x = 0; x < rectWidth; ++x) mask[static_cast<std::size_t>(i + x + width * (j + y))] = {};
                     }
                     i += rectWidth;
                 }
