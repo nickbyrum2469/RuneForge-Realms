@@ -4,6 +4,7 @@
 
 #include <cstring>
 #include <limits>
+#include <set>
 
 namespace rf::render {
 
@@ -85,43 +86,95 @@ bool VulkanRenderer::uploadDeviceLocal(const void* data, VkDeviceSize size,
     return ok;
 }
 
-bool VulkanRenderer::createSceneMesh() {
-    const world::VoxelMesh mesh = world_.buildMesh();
-    if (mesh.vertices.empty() || mesh.indices.empty()) {
-        setError(L"Frontier world generation produced an empty render mesh.");
-        return false;
+void VulkanRenderer::destroyChunkMesh(GpuChunkMesh& mesh) {
+    destroyBuffer(mesh.indices);
+    destroyBuffer(mesh.vertices);
+    mesh = {};
+}
+
+bool VulkanRenderer::uploadChunkMesh(world::ChunkCoord coord) {
+    const world::VoxelMesh mesh = world_.buildChunkMesh(coord);
+    auto existing = chunkMeshes_.find(coord);
+    if (existing != chunkMeshes_.end()) {
+        destroyChunkMesh(existing->second);
+        chunkMeshes_.erase(existing);
     }
 
+    if (mesh.empty()) {
+        world_.markChunkMeshReady(coord);
+        return true;
+    }
+
+    GpuChunkMesh gpu;
     const VkDeviceSize vertexBytes = static_cast<VkDeviceSize>(mesh.vertices.size() * sizeof(world::MeshVertex));
     const VkDeviceSize indexBytes = static_cast<VkDeviceSize>(mesh.indices.size() * sizeof(std::uint32_t));
-    if (!uploadDeviceLocal(mesh.vertices.data(), vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_) ||
-        !uploadDeviceLocal(mesh.indices.data(), indexBytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_)) {
-        setError(L"RuneForge could not upload the Frontier world mesh to GPU memory.");
-        destroySceneMesh();
+    if (!uploadDeviceLocal(mesh.vertices.data(), vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, gpu.vertices) ||
+        !uploadDeviceLocal(mesh.indices.data(), indexBytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, gpu.indices)) {
+        destroyChunkMesh(gpu);
+        setError(L"RuneForge could not upload a Frontier chunk mesh to GPU memory.");
         return false;
     }
+    gpu.indexCount = static_cast<std::uint32_t>(mesh.indices.size());
+    gpu.quadCount = mesh.quadCount;
+    chunkMeshes_.emplace(coord, std::move(gpu));
+    world_.markChunkMeshReady(coord);
+    return true;
+}
 
-    indexCount_ = static_cast<std::uint32_t>(mesh.indices.size());
-    sceneQuadCount_ = mesh.quadCount;
+bool VulkanRenderer::syncChunkMeshes() {
+    const auto loadedCoords = world_.loadedChunkCoords();
+    const std::set<world::ChunkCoord> loaded(loadedCoords.begin(), loadedCoords.end());
+
+    for (auto it = chunkMeshes_.begin(); it != chunkMeshes_.end();) {
+        if (!loaded.contains(it->first)) {
+            destroyChunkMesh(it->second);
+            it = chunkMeshes_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    const auto dirtyCoords = world_.dirtyChunkCoords();
+    const std::set<world::ChunkCoord> dirty(dirtyCoords.begin(), dirtyCoords.end());
+    for (const auto coord : loadedCoords) {
+        if (!chunkMeshes_.contains(coord) || dirty.contains(coord)) {
+            if (!uploadChunkMesh(coord)) return false;
+        }
+    }
+
+    sceneQuadCount_ = 0;
+    for (const auto& [coord, mesh] : chunkMeshes_) {
+        (void)coord;
+        sceneQuadCount_ += mesh.quadCount;
+    }
     sceneBlockCount_ = static_cast<std::uint32_t>(world_.solidBlockCount());
-    world_.markChunkMeshesReady();
     worldMeshDirty_ = false;
+    return true;
+}
+
+bool VulkanRenderer::createSceneMesh() {
+    if (!syncChunkMeshes()) return false;
+    if (chunkMeshes_.empty()) {
+        setError(L"Frontier world generation produced no renderable chunk meshes.");
+        return false;
+    }
     return true;
 }
 
 bool VulkanRenderer::rebuildSceneMesh() {
     if (device_ == VK_NULL_HANDLE) return false;
-    vkDeviceWaitIdle(device_);
-    destroySceneMesh();
-    return createSceneMesh();
+    return syncChunkMeshes();
 }
 
 void VulkanRenderer::destroySceneMesh() {
-    destroyBuffer(indexBuffer_);
-    destroyBuffer(vertexBuffer_);
-    indexCount_ = 0;
+    for (auto& [coord, mesh] : chunkMeshes_) {
+        (void)coord;
+        destroyChunkMesh(mesh);
+    }
+    chunkMeshes_.clear();
     sceneQuadCount_ = 0;
     sceneBlockCount_ = 0;
+    visibleChunkCount_ = 0;
 }
 
 } // namespace rf::render

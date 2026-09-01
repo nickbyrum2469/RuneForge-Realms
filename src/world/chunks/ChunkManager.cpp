@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <utility>
 
 namespace rf::world {
 
@@ -38,23 +39,30 @@ ChunkStreamDelta ChunkManager::update(ChunkCoord center,
     });
 
     for (const ChunkCoord coord : requested) {
-        Record record;
-        record.voxels = generator(coord);
-        record.state = ChunkState::Dirty;
-        chunks_.emplace(coord, std::move(record));
+        insert(coord, generator(coord), ChunkState::Dirty);
         delta.loaded.push_back(coord);
     }
 
+    delta.unloaded = evictOutside(center, retainRadius);
+    return delta;
+}
+
+void ChunkManager::insert(ChunkCoord coord, VoxelChunk chunk, ChunkState state) {
+    chunks_.insert_or_assign(coord, Record{std::move(chunk), state});
+}
+
+std::vector<ChunkCoord> ChunkManager::evictOutside(ChunkCoord center, int retainRadius) {
+    retainRadius = std::max(retainRadius, 0);
+    std::vector<ChunkCoord> removed;
     for (auto it = chunks_.begin(); it != chunks_.end();) {
         if (chebyshevDistance(it->first, center) > retainRadius) {
-            delta.unloaded.push_back(it->first);
+            removed.push_back(it->first);
             it = chunks_.erase(it);
         } else {
             ++it;
         }
     }
-
-    return delta;
+    return removed;
 }
 
 VoxelChunk* ChunkManager::find(ChunkCoord coord) noexcept {

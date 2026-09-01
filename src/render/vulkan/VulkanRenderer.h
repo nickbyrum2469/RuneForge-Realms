@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -43,6 +44,7 @@ public:
     [[nodiscard]] const std::string& gpuName() const noexcept { return gpuName_; }
     [[nodiscard]] std::uint32_t sceneQuadCount() const noexcept { return sceneQuadCount_; }
     [[nodiscard]] std::uint32_t sceneBlockCount() const noexcept { return sceneBlockCount_; }
+    [[nodiscard]] std::uint32_t visibleChunkCount() const noexcept { return visibleChunkCount_; }
     [[nodiscard]] world::BlockId selectedBlock() const noexcept { return selectedBlock_; }
 
 private:
@@ -69,6 +71,13 @@ private:
         VkBuffer buffer{VK_NULL_HANDLE};
         VkDeviceMemory memory{VK_NULL_HANDLE};
         VkDeviceSize size{};
+    };
+
+    struct GpuChunkMesh {
+        BufferResource vertices{};
+        BufferResource indices{};
+        std::uint32_t indexCount{};
+        std::uint32_t quadCount{};
     };
 
     struct PushData {
@@ -103,9 +112,12 @@ private:
     bool createSyncObjects();
     bool createSceneMesh();
     bool rebuildSceneMesh();
+    bool syncChunkMeshes();
+    bool uploadChunkMesh(world::ChunkCoord coord);
 
     void destroySwapchainResources();
     void destroySceneMesh();
+    void destroyChunkMesh(GpuChunkMesh& mesh);
     bool recreateSwapchain();
     void recordCommandBuffer(VkCommandBuffer commandBuffer, std::uint32_t imageIndex);
     void updateGameplay(float deltaSeconds);
@@ -113,6 +125,7 @@ private:
     void updateWindowTitle();
     void breakTargetBlock();
     void placeTargetBlock();
+    [[nodiscard]] bool chunkVisible(world::ChunkCoord coord) const noexcept;
 
     QueueFamilies findQueueFamilies(VkPhysicalDevice device) const;
     SwapchainSupport querySwapchainSupport(VkPhysicalDevice device) const;
@@ -186,11 +199,10 @@ private:
     std::array<FrameSync, kFramesInFlight> frames_{};
     std::size_t currentFrame_{0};
 
-    BufferResource vertexBuffer_{};
-    BufferResource indexBuffer_{};
-    std::uint32_t indexCount_{0};
+    std::map<world::ChunkCoord, GpuChunkMesh> chunkMeshes_;
     std::uint32_t sceneQuadCount_{0};
     std::uint32_t sceneBlockCount_{0};
+    std::uint32_t visibleChunkCount_{0};
 
     std::chrono::steady_clock::time_point startTime_{};
     std::chrono::steady_clock::time_point lastFrameTime_{};

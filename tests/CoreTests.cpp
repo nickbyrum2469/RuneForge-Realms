@@ -2,6 +2,7 @@
 #include "core/Version.h"
 #include "core/jobs/JobSystem.h"
 #include "game/PlayerController.h"
+#include "render/culling/ChunkVisibility.h"
 #include "render/materials/MaterialRegistry.h"
 #include "save/FrontierSave.h"
 #include "world/FrontierWorld.h"
@@ -9,6 +10,7 @@
 #include "world/VoxelChunk.h"
 #include "world/blocks/BlockRegistry.h"
 #include "world/generation/TerrainGenerator.h"
+#include "world/streaming/ChunkStreamer.h"
 
 #include <atomic>
 #include <cassert>
@@ -17,7 +19,7 @@
 
 int main() {
     const auto a = rf::Version::parse("0.1.0");
-    const auto b = rf::Version::parse("v0.3.1");
+    const auto b = rf::Version::parse("v0.3.2");
     assert(a && b && *b > *a);
     assert(a->toString() == "0.1.0");
     assert(!rf::Version::parse("0.1"));
@@ -56,6 +58,15 @@ int main() {
         assert(generatedA.get(2, y, 7) == generatedB.get(2, y, 7));
     }
 
+    rf::world::streaming::ChunkStreamer streamer(2);
+    assert(streamer.request(1234u, {20, 20}));
+    assert(!streamer.request(1234u, {20, 20}));
+    assert(streamer.request(1234u, {21, 20}));
+    streamer.waitIdle();
+    auto completedChunks = streamer.drainCompleted();
+    assert(completedChunks.size() == 2);
+    assert(streamer.pendingCount() == 0);
+
     rf::world::FrontierWorld worldA;
     rf::world::FrontierWorld worldB;
     worldA.generate(424242u);
@@ -79,16 +90,34 @@ int main() {
     assert(player.grounded());
     assert(player.position().y >= static_cast<float>(top + 1) - 0.05f);
 
-    // An edit must survive chunk eviction and deterministic regeneration.
     worldA.setBlock(0, top, 0, rf::world::BlockId::Air);
     assert(worldA.getBlock(0, top, 0) == rf::world::BlockId::Air);
-    assert(worldA.updateStreaming(16.0f * 20.0f + 0.5f, 0.5f));
-    assert(worldA.loadedChunkCount() >= 81);
+
+    const float farX = 16.0f * 20.0f + 0.5f;
+    (void)worldA.updateStreaming(farX, 0.5f);
+    assert(worldA.pendingChunkCount() > 0);
+    worldA.waitForStreamingIdle();
+    assert(worldA.updateStreaming(farX, 0.5f));
+    assert(worldA.loadedChunkCount() == 81);
+
+    (void)worldA.updateStreaming(0.5f, 0.5f);
+    worldA.waitForStreamingIdle();
     assert(worldA.updateStreaming(0.5f, 0.5f));
     assert(worldA.getBlock(0, top, 0) == rf::world::BlockId::Air);
 
-    // The generic worker pool is deliberately independent from world state for now; the next
-    // pass can hand chunk-generation and meshing jobs to it without coupling threading to gameplay.
+    rf::world::FrontierWorld farSpawn;
+    farSpawn.generate(777u, {100, -100});
+    assert(farSpawn.loadedChunkCount() == 49);
+    assert(farSpawn.topSolidY(1600, -1600) >= 0);
+
+    using rf::game::Vec3;
+    assert(rf::render::culling::ChunkVisibility::visible({0, 2}, Vec3{8.0f, 8.0f, 0.0f},
+                                                         Vec3{0.0f, 0.0f, 1.0f}, 120.0f, 1.75f));
+    assert(!rf::render::culling::ChunkVisibility::visible({0, -5}, Vec3{8.0f, 8.0f, 0.0f},
+                                                          Vec3{0.0f, 0.0f, 1.0f}, 120.0f, 1.75f));
+    assert(!rf::render::culling::ChunkVisibility::visible({100, 100}, Vec3{},
+                                                          Vec3{0.0f, 0.0f, 1.0f}, 120.0f, 1.75f));
+
     std::atomic<int> completed{0};
     {
         rf::core::jobs::JobSystem jobs(2);
@@ -113,6 +142,6 @@ int main() {
     std::error_code ec;
     std::filesystem::remove(temp, ec);
 
-    std::cout << "RuneForge Frontier streaming/core tests passed\n";
+    std::cout << "RuneForge async streaming/render-core tests passed\n";
     return 0;
 }
