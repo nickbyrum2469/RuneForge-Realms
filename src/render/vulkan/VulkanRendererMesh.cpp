@@ -33,7 +33,10 @@ bool VulkanRenderer::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
 }
 
 void VulkanRenderer::destroyBuffer(BufferResource& resource) {
-    if (device_ == VK_NULL_HANDLE) { resource = {}; return; }
+    if (device_ == VK_NULL_HANDLE) {
+        resource = {};
+        return;
+    }
     if (resource.buffer != VK_NULL_HANDLE) vkDestroyBuffer(device_, resource.buffer, nullptr);
     if (resource.memory != VK_NULL_HANDLE) vkFreeMemory(device_, resource.memory, nullptr);
     resource = {};
@@ -67,7 +70,9 @@ bool VulkanRenderer::uploadDeviceLocal(const void* data, VkDeviceSize size,
                                        VkBufferUsageFlags finalUsage, BufferResource& output) {
     BufferResource staging;
     if (!createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging)) return false;
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging)) {
+        return false;
+    }
 
     void* mapped = nullptr;
     if (vkMapMemory(device_, staging.memory, 0, size, 0, &mapped) != VK_SUCCESS) {
@@ -128,17 +133,31 @@ bool VulkanRenderer::uploadChunkMesh(world::ChunkCoord coord, std::uint64_t revi
 }
 
 bool VulkanRenderer::createSceneMesh() {
-    for (const world::ChunkCoord coord : world_.loadedChunkCoords()) {
-        const auto snapshot = world_.chunkSnapshot(coord);
+    const auto playerPosition = player_.position();
+    const world::ChunkCoord playerChunk = world::chunkFromWorld(playerPosition.x, playerPosition.z);
+
+    // Put only the immediate 3x3 neighborhood on the GPU synchronously. Everything farther
+    // out keeps its Dirty state and flows through the worker/upload budgets after the first frame.
+    for (const world::ChunkCoord coord : world_.dirtyChunkCoords()) {
+        if (world::chebyshevDistance(coord, playerChunk) > kStartupGpuRadius) continue;
+        const auto snapshot = world_.chunkMeshingSnapshot(coord);
         if (!snapshot) continue;
-        const world::VoxelMesh mesh = world_.buildChunkMesh(coord);
-        if (!uploadChunkMesh(coord, world_.chunkRevision(coord), mesh,
-                             static_cast<std::uint32_t>(snapshot->solidBlockCount()))) return false;
+
+        world::VoxelMesh local = world::GreedyMesher::build(*snapshot);
+        world::VoxelMesh translated;
+        translated.append(local, static_cast<float>(coord.x * world::VoxelChunk::sizeX), 0.0f,
+                          static_cast<float>(coord.z * world::VoxelChunk::sizeZ));
+        if (!uploadChunkMesh(coord, world_.chunkRevision(coord), translated,
+                             static_cast<std::uint32_t>(snapshot->center.solidBlockCount()))) {
+            return false;
+        }
+        world_.markChunkMeshQueued(coord);
     }
-    (void)world_.takeDirtyChunkCoords();
+
     (void)world_.takeUnloadedChunkCoords();
+    queueDirtyChunkMeshes();
     if (chunkMeshes_.empty()) {
-        setError(L"Frontier world generation produced no renderable chunk meshes.");
+        setError(L"Frontier world generation produced no renderable nearby chunk meshes.");
         return false;
     }
     return true;
@@ -151,15 +170,25 @@ bool VulkanRenderer::meshJobPending(world::ChunkCoord coord, std::uint64_t revis
     return false;
 }
 
-void VulkanRenderer::queueDirtyChunkMeshes() {
-    for (const world::ChunkCoord coord : world_.takeDirtyChunkCoords()) {
-        const std::uint64_t revision = world_.chunkRevision(coord);
-        if (revision == 0 || meshJobPending(coord, revision)) continue;
-        const auto existing = chunkMeshes_.find(coord);
-        if (existing != chunkMeshes_.end() && existing->second.revision == revision) continue;
-        const auto snapshot = world_.chunkSnapshot(coord);
-        if (!snapshot) continue;
+bool VulkanRenderer::queueChunkMesh(world::ChunkCoord coord) {
+    const std::uint64_t revision = world_.chunkRevision(coord);
+    if (revision == 0) return false;
 
+    if (const auto existing = chunkMeshes_.find(coord);
+        existing != chunkMeshes_.end() && existing->second.revision == revision) {
+        world_.markChunkMeshQueued(coord);
+        return false;
+    }
+    if (meshJobPending(coord, revision)) {
+        world_.markChunkMeshQueued(coord);
+        return false;
+    }
+    if (pendingChunkMeshes_.size() >= kMaxPendingChunkMeshes) return false;
+
+    const auto snapshot = world_.chunkMeshingSnapshot(coord);
+    if (!snapshot) return false;
+
+    try {
         pendingChunkMeshes_.push_back(PendingChunkMesh{
             coord,
             revision,
@@ -171,6 +200,19 @@ void VulkanRenderer::queueDirtyChunkMeshes() {
                 return translated;
             }),
         });
+    } catch (...) {
+        return false;
+    }
+
+    world_.markChunkMeshQueued(coord);
+    return true;
+}
+
+void VulkanRenderer::queueDirtyChunkMeshes() {
+    int scheduled = 0;
+    for (const world::ChunkCoord coord : world_.dirtyChunkCoords()) {
+        if (scheduled >= kMeshScheduleBudgetPerFrame || pendingChunkMeshes_.size() >= kMaxPendingChunkMeshes) break;
+        if (queueChunkMesh(coord)) ++scheduled;
     }
 }
 
@@ -178,7 +220,8 @@ void VulkanRenderer::pumpChunkMeshJobs() {
     using namespace std::chrono_literals;
     constexpr int uploadBudgetPerFrame = 2;
     int uploaded = 0;
-    for (auto it = pendingChunkMeshes_.begin(); it != pendingChunkMeshes_.end() && uploaded < uploadBudgetPerFrame;) {
+    for (auto it = pendingChunkMeshes_.begin();
+         it != pendingChunkMeshes_.end() && uploaded < uploadBudgetPerFrame;) {
         if (it->future.wait_for(0ms) != std::future_status::ready) {
             ++it;
             continue;
@@ -189,9 +232,12 @@ void VulkanRenderer::pumpChunkMeshJobs() {
         world::VoxelMesh mesh = it->future.get();
         it = pendingChunkMeshes_.erase(it);
         if (world_.chunkRevision(coord) != revision) continue;
-        const auto snapshot = world_.chunkSnapshot(coord);
+        const auto snapshot = world_.chunkMeshingSnapshot(coord);
         if (!snapshot) continue;
-        if (!uploadChunkMesh(coord, revision, mesh, static_cast<std::uint32_t>(snapshot->solidBlockCount()))) return;
+        if (!uploadChunkMesh(coord, revision, mesh,
+                             static_cast<std::uint32_t>(snapshot->center.solidBlockCount()))) {
+            return;
+        }
         ++uploaded;
     }
 }
