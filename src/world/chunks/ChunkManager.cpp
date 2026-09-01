@@ -9,6 +9,7 @@ namespace rf::world {
 ChunkManager::ChunkManager() = default;
 
 void ChunkManager::clear() noexcept {
+    jobs_.waitIdle();
     chunks_.clear();
     pending_.clear();
     queued_.clear();
@@ -57,12 +58,18 @@ void ChunkManager::schedulePrefetch(ChunkCoord center,
                                     int residentRadius,
                                     int prefetchRadius,
                                     const Generator& generator) {
+    if (pending_.size() >= maxPendingChunks) return;
+
     int scheduled = 0;
     for (int radius = residentRadius + 1;
-         radius <= prefetchRadius && scheduled < prefetchBudgetPerUpdate;
+         radius <= prefetchRadius && scheduled < prefetchBudgetPerUpdate && pending_.size() < maxPendingChunks;
          ++radius) {
-        for (int dz = -radius; dz <= radius && scheduled < prefetchBudgetPerUpdate; ++dz) {
-            for (int dx = -radius; dx <= radius && scheduled < prefetchBudgetPerUpdate; ++dx) {
+        for (int dz = -radius;
+             dz <= radius && scheduled < prefetchBudgetPerUpdate && pending_.size() < maxPendingChunks;
+             ++dz) {
+            for (int dx = -radius;
+                 dx <= radius && scheduled < prefetchBudgetPerUpdate && pending_.size() < maxPendingChunks;
+                 ++dx) {
                 if (std::max(std::abs(dx), std::abs(dz)) != radius) continue;
                 const ChunkCoord coord{center.x + dx, center.z + dz};
                 if (chunks_.contains(coord) || queued_.contains(coord)) continue;
