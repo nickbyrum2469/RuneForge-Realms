@@ -2,7 +2,10 @@
 
 #include "platform/windows/NativeWindow.h"
 
+#include "save/FrontierSave.h"
+
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -12,15 +15,10 @@
 
 namespace rf::platform {
 namespace {
-constexpr wchar_t kWindowClass[] = L"RuneForgeRealmsNativeWindow";
+constexpr wchar_t windowClass[] = L"RuneForgeRealmsNativeWindow";
 
-std::wstring wide(std::string_view value) {
-    return std::wstring(value.begin(), value.end());
-}
-
-std::wstring hubTitle() {
-    return L"RuneForge Realms - Vulkan Foundation " + wide(RF_VERSION_STRING);
-}
+std::wstring wide(std::string_view value) { return std::wstring(value.begin(), value.end()); }
+std::wstring hubTitle() { return L"RuneForge Realms - Frontier Realms " + wide(RF_VERSION_STRING); }
 
 std::filesystem::path executableDirectory() {
     std::wstring buffer(32768, L'\0');
@@ -33,23 +31,19 @@ std::optional<std::string> readVersionFile(const std::filesystem::path& path) {
     std::ifstream input(path);
     std::string value;
     std::getline(input, value);
-    if (value.empty()) return std::nullopt;
-    return value;
+    return value.empty() ? std::nullopt : std::optional<std::string>{value};
 }
 
 void showUpdateNoticeIfNeeded(HWND hwnd) {
     const auto runtime = executableDirectory();
-    const auto previousVersion = readVersionFile(runtime.parent_path() / L"runtime.previous" / L"version.txt");
-    if (!previousVersion || *previousVersion == RF_VERSION_STRING) return;
-
+    const auto previous = readVersionFile(runtime.parent_path() / L"runtime.previous" / L"version.txt");
+    if (!previous || *previous == RF_VERSION_STRING) return;
     const auto marker = runtime / (L".update-notice-" + wide(RF_VERSION_STRING) + L".ack");
     if (std::filesystem::exists(marker)) return;
 
-    const std::wstring message = L"RuneForge Realms updated successfully from " + wide(*previousVersion) +
-                                 L" to " + wide(RF_VERSION_STRING) + L".\n\n"
-                                 L"The previous runtime was kept as runtime.previous for rollback.";
+    const std::wstring message = L"RuneForge Realms updated successfully from " + wide(*previous) + L" to " +
+                                 wide(RF_VERSION_STRING) + L".\n\nThe previous runtime was kept for rollback.";
     MessageBoxW(hwnd, message.c_str(), L"RuneForge Realms Updated", MB_OK | MB_ICONINFORMATION);
-
     std::ofstream output(marker);
     output << RF_VERSION_STRING << '\n';
 }
@@ -57,6 +51,13 @@ void showUpdateNoticeIfNeeded(HWND hwnd) {
 
 NativeWindow::NativeWindow() = default;
 NativeWindow::~NativeWindow() = default;
+
+std::filesystem::path NativeWindow::frontierSavePath() const {
+    if (const wchar_t* local = _wgetenv(L"LOCALAPPDATA")) {
+        return std::filesystem::path(local) / L"RuneForgeRealms" / L"Saves" / L"FrontierRealms" / L"world.rfsv";
+    }
+    return executableDirectory() / L"user-data" / L"FrontierRealms" / L"world.rfsv";
+}
 
 bool NativeWindow::create(HINSTANCE instance, int showCommand) {
     instance_ = instance;
@@ -68,20 +69,20 @@ bool NativeWindow::create(HINSTANCE instance, int showCommand) {
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
     wc.hbrBackground = nullptr;
-    wc.lpszClassName = kWindowClass;
+    wc.lpszClassName = windowClass;
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
 
     RECT desired{0, 0, 1600, 900};
     AdjustWindowRectEx(&desired, WS_OVERLAPPEDWINDOW, FALSE, 0);
     const std::wstring title = hubTitle();
-    hwnd_ = CreateWindowExW(0, kWindowClass, title.c_str(),
-                            WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                            desired.right - desired.left, desired.bottom - desired.top,
+    hwnd_ = CreateWindowExW(0, windowClass, title.c_str(), WS_OVERLAPPEDWINDOW,
+                            CW_USEDEFAULT, CW_USEDEFAULT, desired.right - desired.left, desired.bottom - desired.top,
                             nullptr, nullptr, instance_, this);
     if (!hwnd_) return false;
 
     painter_ = std::make_unique<rf::ui::HubPainter>(hwnd_);
     if (!painter_->initialize()) return false;
+    painter_->setHasSave(save::frontierSaveExists(frontierSavePath()));
 
     ShowWindow(hwnd_, showCommand);
     UpdateWindow(hwnd_);
@@ -97,12 +98,8 @@ int NativeWindow::run() {
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
-
-        if (mode_ == ViewMode::VulkanScene && renderer_ && renderer_->initialized()) {
-            renderer_->drawFrame();
-        } else {
-            WaitMessage();
-        }
+        if (mode_ == ViewMode::Frontier && renderer_ && renderer_->initialized()) renderer_->drawFrame();
+        else WaitMessage();
     }
 }
 
@@ -141,66 +138,134 @@ LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
 
         case WM_LBUTTONDOWN:
             if (mode_ == ViewMode::Hub && painter_) {
-                handleAction(painter_->click(static_cast<float>(GET_X_LPARAM(lParam)),
-                                             static_cast<float>(GET_Y_LPARAM(lParam))));
+                handleAction(painter_->click(static_cast<float>(GET_X_LPARAM(lParam)), static_cast<float>(GET_Y_LPARAM(lParam))));
+            } else if (mode_ == ViewMode::Frontier && renderer_ && !renderer_->paused()) {
+                renderer_->onMouseButton(true);
+            }
+            return 0;
+
+        case WM_RBUTTONDOWN:
+            if (mode_ == ViewMode::Frontier && renderer_ && !renderer_->paused()) renderer_->onMouseButton(false);
+            return 0;
+
+        case WM_MOUSEMOVE:
+            if (mode_ == ViewMode::Frontier && renderer_ && mouseCaptured_ && !renderer_->paused()) {
+                RECT client{};
+                GetClientRect(hwnd_, &client);
+                const int centerX = (client.right - client.left) / 2;
+                const int centerY = (client.bottom - client.top) / 2;
+                const int dx = GET_X_LPARAM(lParam) - centerX;
+                const int dy = GET_Y_LPARAM(lParam) - centerY;
+                if (dx != 0 || dy != 0) {
+                    renderer_->onMouseDelta(static_cast<float>(dx), static_cast<float>(dy));
+                    centerMouse();
+                }
             }
             return 0;
 
         case WM_KEYDOWN:
-            if (mode_ == ViewMode::VulkanScene) {
-                if (wParam == VK_ESCAPE) {
+            if (mode_ == ViewMode::Frontier && renderer_) {
+                if (wParam == VK_ESCAPE && (lParam & (1u << 30)) == 0) {
+                    const bool pause = !renderer_->paused();
+                    renderer_->setPaused(pause);
+                    if (pause) releaseMouse(); else captureMouse();
+                } else if (renderer_->paused() && wParam == 'H') {
                     returnToHub();
-                } else if (renderer_) {
+                } else {
                     renderer_->onKeyDown(wParam);
                 }
             }
             return 0;
 
+        case WM_KEYUP:
+            if (mode_ == ViewMode::Frontier && renderer_) renderer_->onKeyUp(wParam);
+            return 0;
+
+        case WM_ACTIVATEAPP:
+            if (mode_ == ViewMode::Frontier && renderer_ && wParam == FALSE) {
+                renderer_->setPaused(true);
+                releaseMouse();
+            }
+            return 0;
+
+        case WM_SETCURSOR:
+            if (mode_ == ViewMode::Frontier && mouseCaptured_ && renderer_ && !renderer_->paused()) {
+                SetCursor(LoadCursor(nullptr, IDC_CROSS));
+                return TRUE;
+            }
+            break;
+
         case WM_DESTROY:
+            releaseMouse();
             renderer_.reset();
             painter_.reset();
             PostQuitMessage(0);
             return 0;
 
         default:
-            return DefWindowProcW(hwnd_, message, wParam, lParam);
+            break;
     }
+    return DefWindowProcW(hwnd_, message, wParam, lParam);
 }
 
-void NativeWindow::enterVulkanScene() {
-    if (mode_ == ViewMode::VulkanScene) return;
+void NativeWindow::centerMouse() {
+    RECT client{};
+    GetClientRect(hwnd_, &client);
+    POINT point{(client.right - client.left) / 2, (client.bottom - client.top) / 2};
+    ClientToScreen(hwnd_, &point);
+    SetCursorPos(point.x, point.y);
+}
 
+void NativeWindow::captureMouse() {
+    if (!hwnd_) return;
+    SetCapture(hwnd_);
+    RECT rect{};
+    GetClientRect(hwnd_, &rect);
+    POINT topLeft{rect.left, rect.top};
+    POINT bottomRight{rect.right, rect.bottom};
+    ClientToScreen(hwnd_, &topLeft);
+    ClientToScreen(hwnd_, &bottomRight);
+    RECT clip{topLeft.x, topLeft.y, bottomRight.x, bottomRight.y};
+    ClipCursor(&clip);
+    mouseCaptured_ = true;
+    SetCursor(LoadCursor(nullptr, IDC_CROSS));
+    centerMouse();
+}
+
+void NativeWindow::releaseMouse() {
+    if (mouseCaptured_) ReleaseCapture();
+    ClipCursor(nullptr);
+    mouseCaptured_ = false;
+    SetCursor(LoadCursor(nullptr, IDC_ARROW));
+}
+
+void NativeWindow::enterFrontier(bool continueExisting) {
+    if (mode_ == ViewMode::Frontier) return;
     painter_.reset();
-    renderer_ = std::make_unique<rf::render::VulkanRenderer>(hwnd_);
+    renderer_ = std::make_unique<rf::render::VulkanRenderer>(hwnd_, frontierSavePath(), continueExisting);
     if (!renderer_->initialize()) {
-        const std::wstring error = renderer_->lastError().empty()
-            ? L"The Vulkan renderer could not initialize."
-            : renderer_->lastError();
+        const std::wstring error = renderer_->lastError().empty() ? L"Frontier Realms could not initialize." : renderer_->lastError();
         renderer_.reset();
         returnToHub();
-        MessageBoxW(hwnd_, error.c_str(), L"RuneForge Vulkan initialization", MB_OK | MB_ICONERROR);
+        MessageBoxW(hwnd_, error.c_str(), L"RuneForge Frontier initialization", MB_OK | MB_ICONERROR);
         return;
     }
-
-    mode_ = ViewMode::VulkanScene;
-    std::wstring gpu(renderer_->gpuName().begin(), renderer_->gpuName().end());
-    std::wstring title = L"RuneForge Realms " + wide(RF_VERSION_STRING) + L" - Vulkan Voxel Lab - " + gpu +
-                         L" - Esc: Hub | Arrows: Orbit | W/S: Zoom | Space: Auto Orbit";
-    SetWindowTextW(hwnd_, title.c_str());
+    mode_ = ViewMode::Frontier;
+    captureMouse();
 }
 
 void NativeWindow::returnToHub() {
+    if (renderer_) renderer_->saveNow();
     renderer_.reset();
+    releaseMouse();
     mode_ = ViewMode::Hub;
-
     painter_ = std::make_unique<rf::ui::HubPainter>(hwnd_);
     if (!painter_->initialize()) {
-        MessageBoxW(hwnd_, L"RuneForge could not restore the native hub renderer.",
-                    L"RuneForge Realms", MB_OK | MB_ICONERROR);
+        MessageBoxW(hwnd_, L"RuneForge could not restore the native main menu.", L"RuneForge Realms", MB_OK | MB_ICONERROR);
         PostMessageW(hwnd_, WM_CLOSE, 0, 0);
         return;
     }
-
+    painter_->setHasSave(save::frontierSaveExists(frontierSavePath()));
     RECT client{};
     GetClientRect(hwnd_, &client);
     painter_->resize(static_cast<unsigned>(std::max<LONG>(client.right - client.left, 1)),
@@ -211,32 +276,31 @@ void NativeWindow::returnToHub() {
 }
 
 void NativeWindow::handleAction(rf::ui::HubAction action) {
-    const wchar_t* message = nullptr;
     switch (action) {
-        case rf::ui::HubAction::Play:
-            enterVulkanScene();
+        case rf::ui::HubAction::ContinueGame:
+            enterFrontier(true);
             return;
-        case rf::ui::HubAction::OpenModes:
-            message = L"Modes browser foundation selected. The Vulkan voxel lab is currently wired to the PLAY path.";
-            break;
-        case rf::ui::HubAction::OpenParty:
-            message = L"Party / co-op shell selected. Networking stays isolated until the local world simulation is stable.";
-            break;
-        case rf::ui::HubAction::OpenLocker:
-            message = L"Locker / character loadout shell selected.";
-            break;
-        case rf::ui::HubAction::OpenShop:
-            message = L"Shop is visual scaffolding only. RuneForge has no paid economy in this foundation build.";
-            break;
+        case rf::ui::HubAction::NewGame:
+            if (save::frontierSaveExists(frontierSavePath())) {
+                const int choice = MessageBoxW(hwnd_, L"Start a new Frontier?\n\nYour current world will remain until the new world is saved, then it will be replaced.",
+                                               L"New Frontier", MB_YESNO | MB_ICONQUESTION);
+                if (choice != IDYES) return;
+            }
+            enterFrontier(false);
+            return;
+        case rf::ui::HubAction::OpenWorlds:
+            MessageBoxW(hwnd_, L"World management arrives after the first native save slot. Continue and New World are active now.",
+                        L"RuneForge Worlds", MB_OK | MB_ICONINFORMATION);
+            return;
         case rf::ui::HubAction::OpenSettings:
-            message = L"Native settings panel foundation selected. Vulkan quality/device controls come after renderer diagnostics.";
-            break;
+            MessageBoxW(hwnd_, L"Graphics, input and accessibility settings are the next native UI pass.\n\nCurrent Frontier controls: WASD, mouse, Space, Shift, Ctrl, LMB/RMB, 1-5, F5, Esc.",
+                        L"RuneForge Settings", MB_OK | MB_ICONINFORMATION);
+            return;
+        case rf::ui::HubAction::Quit:
+            PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+            return;
         default:
-            break;
-    }
-    if (message) {
-        const std::wstring caption = L"RuneForge Realms " + wide(RF_VERSION_STRING);
-        MessageBoxW(hwnd_, message, caption.c_str(), MB_OK | MB_ICONINFORMATION);
+            return;
     }
 }
 
