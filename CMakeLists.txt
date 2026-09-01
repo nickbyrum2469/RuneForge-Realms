@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(RuneForgeRealms VERSION 0.3.1 LANGUAGES C CXX)
+project(RuneForgeRealms VERSION 0.3.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,8 +20,10 @@ add_library(runeforge_core STATIC
     src/world/blocks/BlockRegistry.cpp
     src/world/FrontierWorld.cpp
     src/render/materials/MaterialRegistry.cpp
+    src/render/scene/ChunkCulling.cpp
     src/game/PlayerController.cpp
     src/save/FrontierSave.cpp
+    src/save/world/RegionFile.cpp
 )
 target_include_directories(runeforge_core PUBLIC src)
 target_compile_definitions(runeforge_core PUBLIC RF_VERSION_STRING="${PROJECT_VERSION}")
@@ -156,7 +158,14 @@ endif()
 
 if(RF_BUILD_TESTS)
     enable_testing()
-    add_executable(runeforge_core_tests tests/CoreTests.cpp)
+    add_executable(runeforge_core_tests
+        tests/CoreTests.cpp
+        tests/TestCulling.cpp
+        tests/TestJobs.cpp
+        tests/TestPersistence.cpp
+        tests/TestRegistries.cpp
+        tests/TestWorld.cpp
+    )
     target_link_libraries(runeforge_core_tests PRIVATE runeforge_core)
     add_test(NAME runeforge_core_tests COMMAND runeforge_core_tests)
 endif()
