@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(RuneForgeRealms VERSION 0.2.1 LANGUAGES C CXX)
+project(RuneForgeRealms VERSION 0.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,6 +10,11 @@ option(RF_BUILD_TESTS "Build RuneForge tests" ON)
 add_library(runeforge_core STATIC
     src/core/Version.cpp
     src/core/HubModel.cpp
+    src/world/VoxelChunk.cpp
+    src/world/GreedyMesher.cpp
+    src/world/FrontierWorld.cpp
+    src/game/PlayerController.cpp
+    src/save/FrontierSave.cpp
 )
 target_include_directories(runeforge_core PUBLIC src)
 target_compile_definitions(runeforge_core PUBLIC RF_VERSION_STRING="${PROJECT_VERSION}")
@@ -23,8 +28,6 @@ endif()
 if(WIN32)
     include(FetchContent)
 
-    # Vulkan headers + volk are pinned so the source tree does not depend on a machine-wide Vulkan SDK.
-    # volk loads vulkan-1.dll dynamically from the installed GPU driver at runtime.
     FetchContent_Declare(
         rf_vulkan_headers
         GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
@@ -53,8 +56,6 @@ if(WIN32)
     )
     target_compile_definitions(runeforge_volk PUBLIC VK_USE_PLATFORM_WIN32_KHR)
 
-    # DXC is used only at build time. tools/setup_windows_deps.ps1 installs the official
-    # Microsoft package into .deps/dxc/bin/x64; a system x64 dxc is also accepted locally.
     set(RF_DXC_EXECUTABLE "" CACHE FILEPATH "Path to Microsoft's x64 dxc executable")
     set(RF_BUNDLED_DXC "${CMAKE_SOURCE_DIR}/.deps/dxc/bin/x64/dxc.exe")
     if(NOT RF_DXC_EXECUTABLE)
@@ -103,6 +104,10 @@ if(WIN32)
         src/app/main_windows.cpp
         src/platform/windows/NativeWindow.cpp
         src/render/vulkan/VulkanRenderer.cpp
+        src/render/vulkan/VulkanRendererDevice.cpp
+        src/render/vulkan/VulkanRendererSwapchain.cpp
+        src/render/vulkan/VulkanRendererPipeline.cpp
+        src/render/vulkan/VulkanRendererMesh.cpp
         src/ui/HubLayout.cpp
         src/ui/HubPainter.cpp
     )
