@@ -56,6 +56,10 @@ bool readInventory(std::istream& input, FrontierSaveData& data, std::size_t coun
     return true;
 }
 
+bool validMiningDamage(const game::mining::MiningDamageState& state) noexcept {
+    return std::isfinite(state.progress) && state.progress > 0.0f && state.progress < 1.0f;
+}
+
 bool readMiningDamage(std::istream& input, FrontierSaveData& data, std::size_t count) {
     if (count > 1000000u) return false;
     data.miningDamage.clear();
@@ -63,7 +67,7 @@ bool readMiningDamage(std::istream& input, FrontierSaveData& data, std::size_t c
     for (std::size_t i = 0; i < count; ++i) {
         game::mining::MiningDamageState state;
         input >> state.position.x >> state.position.y >> state.position.z >> state.progress;
-        if (!input || !std::isfinite(state.progress) || state.progress <= 0.0f || state.progress >= 1.0f) return false;
+        if (!input || !validMiningDamage(state)) return false;
         data.miningDamage.push_back(state);
     }
     return true;
@@ -83,6 +87,14 @@ bool readMicroHarvest(std::istream& input, FrontierSaveData& data, std::size_t c
     return true;
 }
 
+bool validDrop(const game::drops::WorldDrop& drop) noexcept {
+    return drop.item > game::items::ItemId::None && drop.item <= game::items::ItemId::Leaves &&
+           drop.count > 0 &&
+           std::isfinite(drop.position.x) && std::isfinite(drop.position.y) && std::isfinite(drop.position.z) &&
+           std::isfinite(drop.velocity.x) && std::isfinite(drop.velocity.y) && std::isfinite(drop.velocity.z) &&
+           std::isfinite(drop.age) && drop.age >= 0.0f;
+}
+
 bool readDrops(std::istream& input, FrontierSaveData& data, std::size_t count) {
     if (count > 100000u) return false;
     data.drops.clear();
@@ -95,12 +107,10 @@ bool readDrops(std::istream& input, FrontierSaveData& data, std::size_t count) {
               >> drop.position.x >> drop.position.y >> drop.position.z
               >> drop.velocity.x >> drop.velocity.y >> drop.velocity.z >> drop.age;
         if (!input || item <= static_cast<int>(game::items::ItemId::None) ||
-            item > static_cast<int>(game::items::ItemId::Leaves) || countValue == 0 || countValue > 65535u ||
-            !std::isfinite(drop.position.x) || !std::isfinite(drop.position.y) || !std::isfinite(drop.position.z) ||
-            !std::isfinite(drop.velocity.x) || !std::isfinite(drop.velocity.y) || !std::isfinite(drop.velocity.z) ||
-            !std::isfinite(drop.age) || drop.age < 0.0f) return false;
+            item > static_cast<int>(game::items::ItemId::Leaves) || countValue == 0 || countValue > 65535u) return false;
         drop.item = static_cast<game::items::ItemId>(item);
         drop.count = static_cast<std::uint16_t>(countValue);
+        if (!validDrop(drop)) return false;
         data.drops.push_back(drop);
     }
     return true;
@@ -214,16 +224,18 @@ bool saveFrontierSave(const std::filesystem::path& path, const FrontierSaveData&
         output << i << ' ' << static_cast<int>(stack.item) << ' ' << stack.count << '\n';
     }
 
-    output << "mining_damage " << data.miningDamage.size() << '\n';
+    std::size_t damageCount = 0;
+    for (const auto& state : data.miningDamage) if (validMiningDamage(state)) ++damageCount;
+    output << "mining_damage " << damageCount << '\n';
     for (const auto& state : data.miningDamage) {
-        if (state.progress <= 0.0f || state.progress >= 1.0f) continue;
+        if (!validMiningDamage(state)) continue;
         output << state.position.x << ' ' << state.position.y << ' ' << state.position.z << ' '
                << std::setprecision(9) << state.progress << '\n';
     }
 
     std::size_t harvestTypes = 0;
     for (std::size_t block = 1; block < data.microHarvestCells.size(); ++block) {
-        if (data.microHarvestCells[block] != 0) ++harvestTypes;
+        if ((data.microHarvestCells[block] % world::micro::cellCount) != 0) ++harvestTypes;
     }
     output << "micro_harvest " << harvestTypes << '\n';
     for (std::size_t block = 1; block < data.microHarvestCells.size(); ++block) {
@@ -232,9 +244,11 @@ bool saveFrontierSave(const std::filesystem::path& path, const FrontierSaveData&
         output << block << ' ' << cells << '\n';
     }
 
-    output << "drops " << data.drops.size() << '\n';
+    std::size_t dropCount = 0;
+    for (const auto& drop : data.drops) if (validDrop(drop)) ++dropCount;
+    output << "drops " << dropCount << '\n';
     for (const auto& drop : data.drops) {
-        if (drop.item == game::items::ItemId::None || drop.count == 0) continue;
+        if (!validDrop(drop)) continue;
         output << drop.id << ' ' << static_cast<int>(drop.item) << ' ' << drop.count << ' '
                << std::setprecision(9)
                << drop.position.x << ' ' << drop.position.y << ' ' << drop.position.z << ' '
