@@ -64,7 +64,9 @@ private:
         float pad2{};
     };
 
-    static constexpr std::size_t kFramesInFlight = 2;
+    // One frame in flight intentionally protects the single shared depth image in this first
+    // renderer proof. The next renderer-memory pass will move depth/transient attachments per frame.
+    static constexpr std::size_t kFramesInFlight = 1;
     static constexpr std::uint32_t kSceneInstanceCount = 110;
 
     bool createInstance();
