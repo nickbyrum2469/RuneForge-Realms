@@ -11,6 +11,10 @@ struct PushData {
     float selectedMaterial;
     float miningMode;
     float miningProgress;
+    float targetBlockX;
+    float targetBlockY;
+    float targetBlockZ;
+    float targetActive;
 };
 
 [[vk::push_constant]] ConstantBuffer<PushData> pushData;
@@ -267,6 +271,27 @@ float3 detailNormal(uint material, float3 p, float3 n) {
                      bitangent * ((hb - h) / epsilon) * strength);
 }
 
+float structuralDamageCrack(float3 worldPosition, float3 geometricNormal) {
+    if (pushData.targetActive < 0.5 || pushData.miningProgress <= 0.001) return 0.0;
+    // Micro mode is represented by true missing geometry. Surface cracks are reserved for
+    // structural Block mining and the structural component of Mixed mining.
+    if (pushData.miningMode > 0.5 && pushData.miningMode < 1.5) return 0.0;
+
+    const float3 targetBlock = float3(pushData.targetBlockX, pushData.targetBlockY, pushData.targetBlockZ);
+    const float3 interiorPoint = worldPosition - geometricNormal * 0.0025;
+    const float3 fragmentBlock = floor(interiorPoint);
+    const float3 targetDelta = abs(fragmentBlock - targetBlock);
+    if (max(max(targetDelta.x, targetDelta.y), targetDelta.z) > 0.25) return 0.0;
+
+    const float progress = saturate(pushData.miningProgress);
+    const float seed = hash31(targetBlock * 0.173 + 7.91);
+    const float2 uv = surfaceUv(worldPosition, geometricNormal);
+    float crack = plateCrack(uv + seed * 0.071, 1.25) * smoothstep(0.06, 0.24, progress);
+    crack = max(crack, plateCrack(uv + seed * 0.113 + 0.21, 2.65) * smoothstep(0.28, 0.52, progress));
+    crack = max(crack, plateCrack(uv - seed * 0.083 + 0.47, 5.20) * smoothstep(0.58, 0.88, progress));
+    return saturate(crack * (0.58 + progress * 0.42));
+}
+
 float3 acesTone(float3 x) {
     const float a = 2.51;
     const float b = 0.03;
@@ -353,6 +378,13 @@ float4 PSSky(FullscreenOutput input) : SV_Target0 {
 float4 PSMain(VSOutput input) : SV_Target0 {
     float3 geometricNormal = normalize(input.normal);
     MaterialSample material = sampleMaterial(input.material, input.worldPosition, geometricNormal);
+    const float damageCrack = structuralDamageCrack(input.worldPosition, geometricNormal);
+    if (damageCrack > 0.0) {
+        const float progress = saturate(pushData.miningProgress);
+        material.albedo *= 1.0 - damageCrack * (0.38 + progress * 0.34);
+        material.cavity = saturate(material.cavity + damageCrack * (0.48 + progress * 0.38));
+        material.roughness = saturate(material.roughness + damageCrack * 0.08);
+    }
     float3 n = detailNormal(input.material, input.worldPosition, geometricNormal);
 
     float3 sunDirection = normalize(float3(-0.52, 0.63, -0.44));
