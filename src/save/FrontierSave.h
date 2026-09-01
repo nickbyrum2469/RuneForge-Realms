@@ -1,11 +1,13 @@
 #pragma once
 
 #include "game/Math.h"
+#include "game/drops/DropSystem.h"
 #include "game/inventory/Inventory.h"
-#include "game/mining/MiningMode.h"
+#include "game/mining/MiningSystem.h"
 #include "world/WorldEdit.h"
 #include "world/micro/MicroVoxelEdit.h"
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -14,6 +16,8 @@
 namespace rf::save {
 
 struct FrontierSaveData {
+    static constexpr std::size_t microHarvestSlots = 6;
+
     std::uint32_t seed{1337};
     float worldAgeSeconds{};
     game::Vec3 playerPosition{0.5f, 10.0f, 0.5f};
@@ -21,6 +25,9 @@ struct FrontierSaveData {
     float pitch{-0.08f};
     game::mining::MiningMode miningMode{game::mining::MiningMode::Mixed};
     game::inventory::Inventory inventory{};
+    std::vector<game::mining::MiningDamageState> miningDamage;
+    std::array<std::uint32_t, microHarvestSlots> microHarvestCells{};
+    std::vector<game::drops::WorldDrop> drops;
     std::vector<world::BlockEdit> edits;
     std::vector<world::micro::MicroVoxelEdit> microEdits;
 };
