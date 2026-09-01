@@ -1,48 +1,22 @@
 #pragma once
 
 #include "world/GreedyMesher.h"
+#include "world/WorldEdit.h"
+#include "world/chunks/ChunkManager.h"
 
-#include <compare>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <vector>
 
 namespace rf::world {
 
-struct ChunkCoord {
-    int x{};
-    int z{};
-    auto operator<=>(const ChunkCoord&) const = default;
-};
-
-struct BlockCoord {
-    int x{};
-    int y{};
-    int z{};
-    auto operator<=>(const BlockCoord&) const = default;
-};
-
-struct BlockEdit {
-    BlockCoord position{};
-    BlockId block{BlockId::Air};
-};
-
-struct RaycastHit {
-    bool hit{false};
-    BlockCoord block{};
-    BlockCoord adjacent{};
-};
-
 class FrontierWorld {
 public:
-    static constexpr int chunkRadius = 3;
-    static constexpr int chunkDiameter = chunkRadius * 2 + 1;
-    static constexpr int worldMin = -chunkRadius * VoxelChunk::sizeX;
-    static constexpr int worldMax = (chunkRadius + 1) * VoxelChunk::sizeX - 1;
-
     void generate(std::uint32_t seed);
+    [[nodiscard]] bool updateStreaming(float worldX, float worldZ);
 
-    [[nodiscard]] std::uint32_t seed() const noexcept { return seed_; }
+    [[nodiscard]] std::uint32_t seed() const noexcept { return chunks_.seed(); }
     [[nodiscard]] BlockId getBlock(int x, int y, int z) const noexcept;
     bool setBlock(int x, int y, int z, BlockId block, bool recordEdit = true);
     [[nodiscard]] int topSolidY(int x, int z) const noexcept;
@@ -51,24 +25,29 @@ public:
     [[nodiscard]] RaycastHit raycast(float ox, float oy, float oz,
                                      float dx, float dy, float dz,
                                      float maxDistance) const noexcept;
+
     [[nodiscard]] VoxelMesh buildMesh() const;
+    [[nodiscard]] VoxelMesh buildChunkMesh(ChunkCoord coord) const;
+    [[nodiscard]] std::optional<VoxelChunk> chunkSnapshot(ChunkCoord coord) const;
+    [[nodiscard]] std::vector<ChunkCoord> loadedChunkCoords() const;
+    [[nodiscard]] std::vector<ChunkCoord> takeDirtyChunks();
+    [[nodiscard]] std::vector<ChunkCoord> takeUnloadedChunks();
+    [[nodiscard]] std::uint64_t chunkRevision(ChunkCoord coord) const noexcept;
+    [[nodiscard]] ChunkStreamingStats streamingStats() const noexcept;
     [[nodiscard]] std::size_t solidBlockCount() const noexcept;
 
     [[nodiscard]] std::vector<BlockEdit> edits() const;
     void applyEdit(const BlockEdit& edit);
-    void clearEdits() noexcept { edits_.clear(); }
+    void clearEdits() noexcept { editsByChunk_.clear(); }
 
 private:
-    [[nodiscard]] static int floorDiv(int value, int divisor) noexcept;
-    [[nodiscard]] static int floorMod(int value, int divisor) noexcept;
-    [[nodiscard]] VoxelChunk* chunkAt(int chunkX, int chunkZ) noexcept;
-    [[nodiscard]] const VoxelChunk* chunkAt(int chunkX, int chunkZ) const noexcept;
-    void generateTerrain();
-    void generateTrees();
+    [[nodiscard]] static ChunkCoord coordForBlock(int x, int z) noexcept;
+    void applyEditsToChunk(ChunkCoord coord);
+    void markMeshNeighborhoodDirty(ChunkCoord coord, int localX, int localZ) noexcept;
 
-    std::uint32_t seed_{1337};
-    std::map<ChunkCoord, VoxelChunk> chunks_;
-    std::map<BlockCoord, BlockId> edits_;
+    ChunkManager chunks_;
+    std::map<ChunkCoord, std::map<BlockCoord, BlockId>> editsByChunk_;
+    std::vector<ChunkCoord> recentlyUnloaded_;
 };
 
 } // namespace rf::world
