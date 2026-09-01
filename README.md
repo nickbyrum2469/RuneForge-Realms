@@ -2,22 +2,31 @@
 
 RuneForge Realms is the native successor to the WORLDWEAVE browser prototype: a persistent voxel survival sandbox whose core progression increases the **scale of agency** from individual blocks to shapes, structures, settlements, landscapes and eventually world rules.
 
-## Status — 0.1.0 Native Foundation
+## Status — 0.2.0 Vulkan Foundation
 
-This repository is now a real C++23 Windows application rather than an Electron/browser wrapper.
+RuneForge is a real native C++23 Windows application rather than an Electron/browser wrapper. The 0.1.0 release established the hub, updater, CI and GitHub Release channel. The 0.2.0 pass begins the actual game renderer.
 
-The first released build proves the distribution and update foundation:
+Current foundation:
 
-- native Windows executable;
-- native C++23 hub shell using Direct2D/DirectWrite for a dependency-light first release;
-- layout based on the new RuneForge hub direction: left navigation rail, featured realm, friends panel, mode carousel, player/currency strip and news bar;
+- native Windows executable and C++23/CMake project;
+- Direct2D/DirectWrite hub shell using the RuneForge hub composition;
+- **Vulkan 1.3 game-renderer path** launched by the hub's PLAY button;
+- dynamic Vulkan loader through pinned `volk` + pinned Khronos Vulkan headers, with no machine-wide Vulkan SDK required to compile the C++ renderer;
+- physical-device scoring with discrete-GPU preference and graphics/present queue discovery;
+- Win32 Vulkan surface and swapchain creation;
+- sRGB presentation, resize/out-of-date swapchain recovery and depth buffering;
+- command pool/buffer, fences, semaphores and frame submission;
+- graphics render pass and pipeline;
+- HLSL shaders compiled to SPIR-V with Microsoft's DXC;
+- first GPU-rendered voxel diorama: grass/dirt blocks, a trunk and voxel canopy rendered as instanced cubes with directional lighting, fog, gamma/tonal shaping and depth testing;
+- simple live camera/orbit controls;
+- clean handoff between the native hub renderer and the Vulkan game renderer on the same application window;
 - separate `RuneForgeBootstrap.exe` that checks the repository's latest GitHub Release before launching the game runtime;
 - rolling runtime update by replacing the `runtime/` folder only while the game is not running;
-- rollback folder retained during update swaps;
 - deterministic core model and semantic-version tests;
 - GitHub Actions CI and Windows release packaging.
 
-The temporary Direct2D hub renderer is **not** the final 3D renderer. The game-world renderer remains Vulkan-first per `docs/TECH_STACK_DECISION.md`. Keeping the bootstrap/hub foundation extremely dependency-light lets us prove releases and automatic updating before introducing the heavier Vulkan/asset stack.
+The current voxel diorama is deliberately a **renderer proof**, not production terrain. Chunk storage, meshing, GPU upload queues, PBR material resources and streaming are the next layer built on this renderer foundation.
 
 ## Run the Windows release
 
@@ -28,14 +37,21 @@ The temporary Direct2D hub renderer is **not** the final 3D renderer. The game-w
 
 From then on, the bootstrapper checks the latest GitHub Release on startup. When a newer semantic version is published, it downloads the new release, stages it, swaps the `runtime/` folder, and then launches the updated game.
 
+In 0.2.0, press **PLAY** from the hub to enter the Vulkan Voxel Lab. Controls: **Left/Right** orbit, **Up/Down** pitch, **W/S** zoom, **Space** toggles automatic orbit, **R** resets the camera, and **Esc** returns to the hub.
+
 ## Build locally on Windows
 
+The C++ Vulkan loader/header dependencies are fetched automatically by CMake. Shader compilation uses the official Microsoft DXC package; the helper below downloads it into the ignored `.deps/` directory.
+
 ```powershell
+pwsh -File tools/setup_windows_deps.ps1
 cmake -S . -B build -A x64 -DRF_BUILD_TESTS=ON
 cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 cmake --install build --config Release --prefix staging/RuneForgeRealms
 ```
+
+A current Vulkan-capable graphics driver is required to run the Vulkan scene.
 
 ## Versioning rule
 
