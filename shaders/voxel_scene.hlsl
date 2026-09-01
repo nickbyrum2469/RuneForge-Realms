@@ -9,8 +9,8 @@ struct PushData {
     float viewportWidth;
     float viewportHeight;
     float selectedMaterial;
-    float pad0;
-    float pad1;
+    float miningMode;
+    float miningProgress;
 };
 
 [[vk::push_constant]] ConstantBuffer<PushData> pushData;
@@ -41,16 +41,27 @@ float hash11(float p) {
     return frac(p);
 }
 
+float hash21(float2 p) {
+    float3 p3 = frac(float3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return frac((p3.x + p3.y) * p3.z);
+}
+
 float hash31(float3 p) {
     p = frac(p * 0.1031);
     p += dot(p, p.yzx + 33.33);
     return frac((p.x + p.y) * p.z);
 }
 
-float hash21(float2 p) {
-    float3 p3 = frac(float3(p.xyx) * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return frac((p3.x + p3.y) * p3.z);
+float noise2(float2 p) {
+    float2 i = floor(p);
+    float2 f = frac(p);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = hash21(i);
+    float b = hash21(i + float2(1, 0));
+    float c = hash21(i + float2(0, 1));
+    float d = hash21(i + float2(1, 1));
+    return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
 }
 
 float noise3(float3 p) {
@@ -72,140 +83,19 @@ float noise3(float3 p) {
     return lerp(lerp(x00, x10, f.y), lerp(x01, x11, f.y), f.z);
 }
 
-float fbm(float3 p) {
-    float value = noise3(p) * 0.62;
-    value += noise3(p * 2.03 + 17.1) * 0.27;
+float fbm3(float3 p) {
+    float value = noise3(p) * 0.56;
+    value += noise3(p * 2.03 + 17.1) * 0.28;
     value += noise3(p * 4.07 + 41.7) * 0.11;
+    value += noise3(p * 8.11 + 71.3) * 0.05;
     return value;
 }
 
-float2 surfaceUv(float3 p, float3 n) {
-    float3 a = abs(n);
-    if (a.y >= a.x && a.y >= a.z) return p.xz;
-    if (a.x >= a.z) return p.zy;
-    return p.xy;
-}
-
-float gridLine(float2 uv, float scale, float width) {
-    float2 f = frac(uv * scale);
-    float2 d = min(f, 1.0 - f);
-    float nearest = min(d.x, d.y);
-    return 1.0 - smoothstep(0.0, width, nearest);
-}
-
-float cellCrack(float2 uv, float scale) {
-    float2 cell = floor(uv * scale);
-    float2 f = frac(uv * scale) - 0.5;
-    float jitter = hash21(cell) - 0.5;
-    float diagonal = abs(f.x + f.y * (0.52 + jitter * 0.55));
-    float seam = 1.0 - smoothstep(0.035, 0.095, diagonal);
-    float border = gridLine(uv, scale, 0.045);
-    return saturate(max(border * 0.72, seam * 0.62));
-}
-
-struct MaterialSample {
-    float3 albedo;
-    float roughness;
-    float relief;
-    float cavity;
-};
-
-MaterialSample sampleMaterial(uint material, float3 p, float3 baseNormal) {
-    MaterialSample s;
-    float2 uv = surfaceUv(p, baseNormal);
-    float macroNoise = fbm(p * 0.42);
-    float mediumNoise = noise3(p * 2.4);
-    float fineNoise = noise3(p * 9.5);
-    float blockEdge = gridLine(uv, 1.0, 0.045);
-
-    if (material == 0) { // grass top: dense turf with small clump cells
-        float patch = fbm(float3(p.x * 0.72, 2.1, p.z * 0.72));
-        float micro = gridLine(uv, 11.0, 0.16) * 0.18;
-        float3 dark = float3(0.055, 0.22, 0.035);
-        float3 light = float3(0.34, 0.68, 0.12);
-        s.albedo = lerp(dark, light, saturate(patch * 0.82 + fineNoise * 0.24));
-        s.albedo *= 1.0 - micro * 0.20;
-        s.roughness = 0.91;
-        s.relief = patch * 0.55 + fineNoise * 0.20;
-        s.cavity = saturate(micro * 0.28 + blockEdge * 0.16);
-    } else if (material == 1) { // grass side: rich soil + turf fringe + roots
-        float turf = smoothstep(0.70, 0.98, frac(p.y + 0.015));
-        float root = pow(saturate(0.5 + 0.5 * sin(uv.x * 23.0 + fbm(p * 1.8) * 7.0)), 11.0);
-        float3 soil = lerp(float3(0.15, 0.060, 0.020), float3(0.40, 0.22, 0.065), macroNoise);
-        float3 green = lerp(float3(0.08, 0.29, 0.035), float3(0.31, 0.60, 0.10), mediumNoise);
-        s.albedo = lerp(soil, green, turf * 0.88);
-        s.albedo = lerp(s.albedo, float3(0.38, 0.25, 0.095), root * (1.0 - turf));
-        s.roughness = 0.95;
-        s.relief = mediumNoise * 0.42 + root * 0.18;
-        s.cavity = saturate(root * 0.15 + blockEdge * 0.19);
-    } else if (material == 2) { // dirt: pebbled soil and sparse roots
-        float pebble = smoothstep(0.70, 0.92, fineNoise);
-        float root = pow(saturate(0.5 + 0.5 * sin(uv.x * 17.0 + uv.y * 4.0 + macroNoise * 8.0)), 13.0);
-        s.albedo = lerp(float3(0.14, 0.055, 0.018), float3(0.43, 0.245, 0.075), macroNoise);
-        s.albedo = lerp(s.albedo, float3(0.31, 0.29, 0.22), pebble * 0.35);
-        s.albedo = lerp(s.albedo, float3(0.46, 0.30, 0.12), root * 0.35);
-        s.roughness = 0.98;
-        s.relief = mediumNoise * 0.33 + pebble * 0.25;
-        s.cavity = saturate(blockEdge * 0.15 + (1.0 - mediumNoise) * 0.08);
-    } else if (material == 3) { // fractured stone: layered plates and deep seams
-        float fracture = cellCrack(uv + macroNoise * 0.035, 3.15);
-        float slab = hash21(floor(uv * 3.15));
-        float strata = 0.5 + 0.5 * sin((p.y + macroNoise * 0.55) * 8.2);
-        float3 cool = float3(0.19, 0.22, 0.25);
-        float3 warm = float3(0.52, 0.50, 0.44);
-        s.albedo = lerp(cool, warm, saturate(macroNoise * 0.55 + slab * 0.35 + strata * 0.10));
-        s.albedo *= 1.0 - fracture * 0.58;
-        s.roughness = 0.84 + fracture * 0.08;
-        s.relief = slab * 0.58 + mediumNoise * 0.20 - fracture * 0.45;
-        s.cavity = saturate(fracture * 0.78 + blockEdge * 0.12);
-    } else if (material == 4) { // bark: chunky vertical plates
-        float groove = 0.5 + 0.5 * sin((uv.x + macroNoise * 0.11) * 28.0);
-        groove = pow(groove, 3.2);
-        float fissure = cellCrack(float2(uv.x * 0.55, uv.y), 2.4) * 0.55;
-        s.albedo = lerp(float3(0.13, 0.045, 0.012), float3(0.47, 0.235, 0.055), groove * 0.58 + macroNoise * 0.42);
-        s.albedo *= 1.0 - fissure * 0.46;
-        s.roughness = 0.90;
-        s.relief = groove * 0.52 - fissure * 0.34 + fineNoise * 0.08;
-        s.cavity = saturate(fissure * 0.55 + blockEdge * 0.10);
-    } else if (material == 5) { // cut wood: end grain rings
-        float2 centered = frac(uv) - 0.5;
-        float radius = length(centered + (macroNoise - 0.5) * 0.04);
-        float rings = 0.5 + 0.5 * sin(radius * 83.0 + macroNoise * 8.0);
-        float split = cellCrack(uv, 1.2) * 0.45;
-        s.albedo = lerp(float3(0.26, 0.10, 0.025), float3(0.67, 0.39, 0.11), rings * 0.45 + macroNoise * 0.55);
-        s.albedo *= 1.0 - split * 0.35;
-        s.roughness = 0.86;
-        s.relief = rings * 0.25 - split * 0.22;
-        s.cavity = saturate(split * 0.50 + blockEdge * 0.08);
-    } else { // leaves: chunky clumps rather than flat green
-        float clump = fbm(p * 1.55);
-        float holes = smoothstep(0.66, 0.91, fineNoise);
-        float veins = 0.5 + 0.5 * sin((uv.x + uv.y) * 31.0 + macroNoise * 8.0);
-        s.albedo = lerp(float3(0.025, 0.16, 0.035), float3(0.19, 0.51, 0.09), clump);
-        s.albedo *= 1.0 - holes * 0.34;
-        s.albedo += float3(0.05, 0.08, 0.01) * veins * 0.12;
-        s.roughness = 0.83;
-        s.relief = clump * 0.48 + fineNoise * 0.18;
-        s.cavity = saturate(holes * 0.30 + blockEdge * 0.08);
-    }
-    return s;
-}
-
-float materialHeight(uint material, float3 p, float3 n) {
-    MaterialSample s = sampleMaterial(material, p, n);
-    return s.relief;
-}
-
-float3 detailNormal(uint material, float3 p, float3 n) {
-    float3 tangent = abs(n.y) < 0.92 ? normalize(cross(float3(0, 1, 0), n)) : float3(1, 0, 0);
-    float3 bitangent = normalize(cross(n, tangent));
-    float epsilon = 0.035;
-    float h = materialHeight(material, p, n);
-    float ht = materialHeight(material, p + tangent * epsilon, n);
-    float hb = materialHeight(material, p + bitangent * epsilon, n);
-    float strength = material == 3 ? 0.72 : (material == 0 ? 0.46 : 0.55);
-    return normalize(n - tangent * ((ht - h) / epsilon) * strength -
-                     bitangent * ((hb - h) / epsilon) * strength);
+float fbm2(float2 p) {
+    float value = noise2(p) * 0.58;
+    value += noise2(p * 2.07 + 11.7) * 0.27;
+    value += noise2(p * 4.13 + 29.2) * 0.15;
+    return value;
 }
 
 float3 rotateY(float3 p, float angle) {
@@ -220,14 +110,161 @@ float3 rotateX(float3 p, float angle) {
     return float3(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
 }
 
-float3 cameraRay(float2 uv) {
-    float2 ndc = uv * 2.0 - 1.0;
-    ndc.y = -ndc.y;
-    const float f = 1.9209821;
-    float3 viewRay = normalize(float3(ndc.x * pushData.aspect / f, -ndc.y / f, 1.0));
-    viewRay = rotateX(viewRay, -pushData.pitch);
-    viewRay = rotateY(viewRay, pushData.yaw);
-    return normalize(viewRay);
+float2 surfaceUv(float3 p, float3 n) {
+    float3 a = abs(n);
+    if (a.y >= a.x && a.y >= a.z) return p.xz;
+    if (a.x >= a.z) return p.zy;
+    return p.xy;
+}
+
+float gridLine(float2 uv, float scale, float width) {
+    float2 f = frac(uv * scale);
+    float2 d = min(f, 1.0 - f);
+    return 1.0 - smoothstep(0.0, width, min(d.x, d.y));
+}
+
+float plateCrack(float2 uv, float scale) {
+    float2 cell = floor(uv * scale);
+    float2 f = frac(uv * scale) - 0.5;
+    float jitter = hash21(cell) - 0.5;
+    float diagonalA = abs(f.x + f.y * (0.48 + jitter * 0.64));
+    float diagonalB = abs(f.x * (0.42 - jitter * 0.30) - f.y);
+    float seamA = 1.0 - smoothstep(0.025, 0.080, diagonalA);
+    float seamB = 1.0 - smoothstep(0.020, 0.065, diagonalB);
+    float border = gridLine(uv, scale, 0.038);
+    return saturate(max(border * 0.72, max(seamA * 0.62, seamB * 0.38)));
+}
+
+struct MaterialSample {
+    float3 albedo;
+    float roughness;
+    float relief;
+    float cavity;
+    float emissive;
+};
+
+MaterialSample sampleMaterial(uint material, float3 p, float3 baseNormal) {
+    MaterialSample s;
+    s.albedo = float3(0.5, 0.5, 0.5);
+    s.roughness = 0.9;
+    s.relief = 0.0;
+    s.cavity = 0.0;
+    s.emissive = 0.0;
+
+    float2 uv = surfaceUv(p, baseNormal);
+    float macroNoise = fbm3(p * 0.44);
+    float mediumNoise = noise3(p * 2.6);
+    float fineNoise = noise3(p * 10.7);
+
+    // Every nearby surface visually acknowledges the same 8x8 micro-cell scale used by physical
+    // fracture state. The seams are subtle on pristine blocks, so promotion never looks like an LOD pop.
+    float microGrid = gridLine(uv, 8.0, 0.060);
+    float microCell = hash21(floor(uv * 8.0));
+
+    if (material == 0) { // Grass top
+        float lush = fbm3(float3(p.x * 0.78, 3.1, p.z * 0.78));
+        float3 dark = float3(0.045, 0.18, 0.025);
+        float3 light = float3(0.37, 0.71, 0.13);
+        s.albedo = lerp(dark, light, saturate(lush * 0.78 + fineNoise * 0.22));
+        s.albedo *= 1.0 - microGrid * 0.10;
+        s.albedo *= 0.93 + microCell * 0.12;
+        s.roughness = 0.91;
+        s.relief = lush * 0.50 + fineNoise * 0.18 + microCell * 0.10;
+        s.cavity = microGrid * 0.10;
+    } else if (material == 1) { // Rooted grass side
+        float turf = smoothstep(0.68, 0.98, frac(p.y + 0.012));
+        float root = pow(saturate(0.5 + 0.5 * sin(uv.x * 24.0 + fbm3(p * 1.7) * 7.0)), 10.0);
+        float3 soil = lerp(float3(0.13, 0.047, 0.013), float3(0.40, 0.22, 0.065), macroNoise);
+        float3 green = lerp(float3(0.07, 0.25, 0.026), float3(0.31, 0.61, 0.10), mediumNoise);
+        s.albedo = lerp(soil, green, turf * 0.90);
+        s.albedo = lerp(s.albedo, float3(0.48, 0.31, 0.11), root * (1.0 - turf) * 0.55);
+        s.albedo *= 1.0 - microGrid * 0.08;
+        s.roughness = 0.96;
+        s.relief = mediumNoise * 0.38 + root * 0.17;
+        s.cavity = root * 0.13 + microGrid * 0.08;
+    } else if (material == 2) { // Dirt
+        float pebble = smoothstep(0.69, 0.92, fineNoise);
+        float root = pow(saturate(0.5 + 0.5 * sin(uv.x * 18.0 + uv.y * 4.0 + macroNoise * 8.0)), 13.0);
+        s.albedo = lerp(float3(0.13, 0.047, 0.014), float3(0.43, 0.245, 0.075), macroNoise);
+        s.albedo = lerp(s.albedo, float3(0.34, 0.31, 0.24), pebble * 0.34);
+        s.albedo = lerp(s.albedo, float3(0.47, 0.30, 0.11), root * 0.31);
+        s.albedo *= 1.0 - microGrid * 0.09;
+        s.roughness = 0.98;
+        s.relief = mediumNoise * 0.32 + pebble * 0.24 + microCell * 0.06;
+        s.cavity = microGrid * 0.10 + (1.0 - mediumNoise) * 0.06;
+    } else if (material == 3) { // Fractured stone
+        float fracture = plateCrack(uv + macroNoise * 0.025, 3.35);
+        float smallFracture = plateCrack(uv + mediumNoise * 0.018, 8.0) * 0.32;
+        float slab = hash21(floor(uv * 3.35));
+        float strata = 0.5 + 0.5 * sin((p.y + macroNoise * 0.48) * 8.6);
+        float3 cool = float3(0.17, 0.20, 0.23);
+        float3 warm = float3(0.55, 0.52, 0.45);
+        s.albedo = lerp(cool, warm, saturate(macroNoise * 0.51 + slab * 0.36 + strata * 0.13));
+        s.albedo *= 1.0 - fracture * 0.60 - smallFracture * 0.20;
+        s.albedo *= 1.0 - microGrid * 0.075;
+        s.roughness = 0.84 + fracture * 0.09;
+        s.relief = slab * 0.58 + mediumNoise * 0.19 + microCell * 0.10 - fracture * 0.48;
+        s.cavity = saturate(fracture * 0.80 + smallFracture * 0.32 + microGrid * 0.07);
+    } else if (material == 4) { // Bark
+        float groove = 0.5 + 0.5 * sin((uv.x + macroNoise * 0.11) * 29.0);
+        groove = pow(groove, 3.1);
+        float fissure = plateCrack(float2(uv.x * 0.55, uv.y), 2.5) * 0.58;
+        s.albedo = lerp(float3(0.12, 0.039, 0.010), float3(0.49, 0.25, 0.060), groove * 0.56 + macroNoise * 0.44);
+        s.albedo *= 1.0 - fissure * 0.46 - microGrid * 0.06;
+        s.roughness = 0.91;
+        s.relief = groove * 0.52 - fissure * 0.35 + fineNoise * 0.08;
+        s.cavity = fissure * 0.57 + microGrid * 0.06;
+    } else if (material == 5) { // Cut wood
+        float2 centered = frac(uv) - 0.5;
+        float radius = length(centered + (macroNoise - 0.5) * 0.04);
+        float rings = 0.5 + 0.5 * sin(radius * 84.0 + macroNoise * 8.0);
+        float split = plateCrack(uv, 1.25) * 0.45;
+        s.albedo = lerp(float3(0.25, 0.085, 0.019), float3(0.69, 0.40, 0.12), rings * 0.45 + macroNoise * 0.55);
+        s.albedo *= 1.0 - split * 0.35 - microGrid * 0.05;
+        s.roughness = 0.86;
+        s.relief = rings * 0.25 - split * 0.22 + microCell * 0.05;
+        s.cavity = split * 0.50 + microGrid * 0.05;
+    } else if (material == 6) { // Leaves
+        float clump = fbm3(p * 1.62);
+        float holes = smoothstep(0.67, 0.91, fineNoise);
+        s.albedo = lerp(float3(0.020, 0.13, 0.027), float3(0.20, 0.53, 0.095), clump);
+        s.albedo *= 1.0 - holes * 0.32 - microGrid * 0.05;
+        s.roughness = 0.83;
+        s.relief = clump * 0.46 + fineNoise * 0.17;
+        s.cavity = holes * 0.28 + microGrid * 0.04;
+    } else if (material == 7) { // White flower
+        s.albedo = lerp(float3(0.68, 0.70, 0.70), float3(1.00, 0.96, 0.86), fineNoise);
+        s.roughness = 0.72;
+        s.relief = fineNoise * 0.14;
+        s.emissive = 0.025;
+    } else if (material == 8) { // Yellow flower
+        s.albedo = lerp(float3(0.78, 0.39, 0.025), float3(1.00, 0.88, 0.16), fineNoise);
+        s.roughness = 0.70;
+        s.relief = fineNoise * 0.14;
+        s.emissive = 0.035;
+    } else { // Blue flower
+        s.albedo = lerp(float3(0.12, 0.29, 0.69), float3(0.37, 0.72, 1.00), fineNoise);
+        s.roughness = 0.68;
+        s.relief = fineNoise * 0.14;
+        s.emissive = 0.035;
+    }
+    return s;
+}
+
+float materialHeight(uint material, float3 p, float3 n) {
+    return sampleMaterial(material, p, n).relief;
+}
+
+float3 detailNormal(uint material, float3 p, float3 n) {
+    float3 tangent = abs(n.y) < 0.92 ? normalize(cross(float3(0, 1, 0), n)) : float3(1, 0, 0);
+    float3 bitangent = normalize(cross(n, tangent));
+    float epsilon = 0.028;
+    float h = materialHeight(material, p, n);
+    float ht = materialHeight(material, p + tangent * epsilon, n);
+    float hb = materialHeight(material, p + bitangent * epsilon, n);
+    float strength = material == 3 ? 0.82 : (material <= 2 ? 0.55 : 0.62);
+    return normalize(n - tangent * ((ht - h) / epsilon) * strength -
+                     bitangent * ((hb - h) / epsilon) * strength);
 }
 
 float3 acesTone(float3 x) {
@@ -239,6 +276,16 @@ float3 acesTone(float3 x) {
     return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
 }
 
+float3 cameraRay(float2 uv) {
+    float2 ndc = uv * 2.0 - 1.0;
+    ndc.y = -ndc.y;
+    const float f = 1.9209821;
+    float3 ray = normalize(float3(ndc.x * pushData.aspect / f, -ndc.y / f, 1.0));
+    ray = rotateX(ray, -pushData.pitch);
+    ray = rotateY(ray, pushData.yaw);
+    return normalize(ray);
+}
+
 VSOutput VSMain(VSInput input) {
     VSOutput output;
     const float3 eye = float3(pushData.eyeX, pushData.eyeY, pushData.eyeZ);
@@ -246,7 +293,7 @@ VSOutput VSMain(VSInput input) {
     const float3 view = rotateX(rotateY(delta, -pushData.yaw), pushData.pitch);
 
     const float nearPlane = 0.08;
-    const float farPlane = 320.0;
+    const float farPlane = 360.0;
     const float f = 1.9209821;
     const float projectedZ = (farPlane / (farPlane - nearPlane)) * view.z -
                              (farPlane * nearPlane / (farPlane - nearPlane));
@@ -264,137 +311,143 @@ FullscreenOutput VSFullscreen(uint vertexId : SV_VertexID) {
     float2 position = vertexId == 0 ? float2(-1.0, -1.0) :
                       (vertexId == 1 ? float2(-1.0, 3.0) : float2(3.0, -1.0));
     output.position = float4(position, 0.99999, 1.0);
-    output.uv = float2(position.x * 0.5 + 0.5, 1.0 - (position.y * 0.5 + 0.5));
+    output.uv = position * 0.5 + 0.5;
     return output;
-}
-
-float4 PSMain(VSOutput input) : SV_Target0 {
-    float3 baseNormal = normalize(input.normal);
-    MaterialSample material = sampleMaterial(input.material, input.worldPosition, baseNormal);
-    float3 n = detailNormal(input.material, input.worldPosition, baseNormal);
-    float3 eye = float3(pushData.eyeX, pushData.eyeY, pushData.eyeZ);
-    float3 viewDir = normalize(eye - input.worldPosition);
-    float3 sunDirection = normalize(float3(-0.47, 0.80, -0.37));
-    float3 halfVector = normalize(sunDirection + viewDir);
-
-    float ndl = saturate(dot(n, sunDirection));
-    float ndv = saturate(dot(n, viewDir));
-    float ndh = saturate(dot(n, halfVector));
-    float skyHemisphere = saturate(n.y * 0.5 + 0.5);
-    float ambient = lerp(0.18, 0.36, skyHemisphere);
-    float wrap = saturate((dot(n, sunDirection) + 0.24) / 1.24);
-
-    float specPower = lerp(9.0, 68.0, saturate(1.0 - material.roughness));
-    float specular = pow(ndh, specPower) * lerp(0.025, 0.13, 1.0 - material.roughness);
-    float fresnel = pow(1.0 - ndv, 5.0) * 0.055;
-    float cavityLight = 1.0 - material.cavity * 0.55;
-
-    float3 sunColor = float3(1.18, 0.97, 0.69);
-    float3 skyColor = float3(0.31, 0.46, 0.68);
-    float3 groundBounce = float3(0.16, 0.11, 0.055);
-    float3 lit = material.albedo * (ambient * skyColor + wrap * sunColor * 0.92 + groundBounce * 0.18);
-    lit *= cavityLight;
-    lit += sunColor * (specular + fresnel * ndl);
-
-    // Top-facing micro geometry catches warm light like the reference voxel renders.
-    lit += float3(0.05, 0.033, 0.012) * saturate(n.y) * saturate(material.relief) * 0.35;
-
-    float distanceFog = saturate((input.depth - 42.0) / 130.0);
-    float heightFog = saturate((7.0 - input.worldPosition.y) / 18.0) * saturate((input.depth - 24.0) / 90.0);
-    float fogAmount = saturate(distanceFog * 0.78 + heightFog * 0.24);
-    float3 fogColor = lerp(float3(0.075, 0.12, 0.18), float3(0.23, 0.31, 0.43), saturate(n.y * 0.5 + 0.5));
-    lit = lerp(lit, fogColor, fogAmount);
-
-    lit = acesTone(lit * 1.28);
-    lit = pow(max(lit, 0.0), 1.0 / 2.2);
-    return float4(lit, 1.0);
 }
 
 float4 PSSky(FullscreenOutput input) : SV_Target0 {
     float2 uv = input.uv;
     float3 ray = cameraRay(uv);
     float horizon = saturate(ray.y * 0.5 + 0.5);
-    float3 lowSky = float3(0.055, 0.095, 0.16);
-    float3 midSky = float3(0.18, 0.30, 0.47);
-    float3 highSky = float3(0.055, 0.11, 0.24);
-    float3 sky = lerp(lowSky, midSky, smoothstep(0.30, 0.58, horizon));
-    sky = lerp(sky, highSky, smoothstep(0.60, 0.96, horizon));
 
-    float3 sunDirection = normalize(float3(-0.47, 0.80, -0.37));
-    float sunDot = saturate(dot(ray, sunDirection));
-    float sun = pow(sunDot, 720.0);
-    float halo = pow(sunDot, 26.0);
-    sky += float3(1.6, 0.95, 0.40) * sun * 1.9;
-    sky += float3(0.65, 0.34, 0.12) * halo * 0.32;
+    float3 horizonColor = float3(0.48, 0.43, 0.39);
+    float3 midColor = float3(0.18, 0.32, 0.51);
+    float3 zenithColor = float3(0.035, 0.085, 0.18);
+    float3 sky = lerp(horizonColor, midColor, smoothstep(0.46, 0.64, horizon));
+    sky = lerp(sky, zenithColor, smoothstep(0.62, 0.96, horizon));
 
-    float cloudPlane = max(ray.y + 0.18, 0.05);
-    float2 cloudUv = ray.xz / cloudPlane * 0.75 + float2(pushData.time * 0.006, 0.0);
-    float cloudNoise = fbm(float3(cloudUv.x, 3.4, cloudUv.y));
-    float clouds = smoothstep(0.60, 0.78, cloudNoise) * smoothstep(-0.08, 0.20, ray.y);
-    sky = lerp(sky, float3(0.67, 0.72, 0.78), clouds * 0.34);
+    float3 sunDirection = normalize(float3(-0.52, 0.63, -0.44));
+    float sunDot = dot(ray, sunDirection);
+    float sun = smoothstep(0.996, 0.9994, sunDot);
+    float halo = pow(saturate(sunDot), 36.0);
+    sky += float3(1.00, 0.72, 0.34) * sun * 5.0;
+    sky += float3(1.00, 0.55, 0.24) * halo * 0.55;
 
-    float horizonGlow = exp(-abs(ray.y + 0.03) * 9.0);
-    sky += float3(0.18, 0.10, 0.045) * horizonGlow;
-    sky = acesTone(sky * 1.16);
+    if (ray.y > 0.015) {
+        float2 cloudUv = ray.xz / max(ray.y, 0.04) * 0.22;
+        cloudUv += float2(pushData.time * 0.0034, pushData.time * 0.0011);
+        float clouds = fbm2(cloudUv * 2.5);
+        clouds = smoothstep(0.56, 0.75, clouds);
+        float cloudFade = smoothstep(0.015, 0.12, ray.y) * (1.0 - smoothstep(0.70, 0.96, ray.y));
+        float3 cloudColor = lerp(float3(0.42, 0.45, 0.49), float3(0.94, 0.89, 0.80), saturate(sunDot * 0.5 + 0.5));
+        sky = lerp(sky, cloudColor, clouds * cloudFade * 0.58);
+    }
+
+    float lowerHaze = exp(-abs(ray.y) * 22.0);
+    sky += float3(0.34, 0.29, 0.26) * lowerHaze * 0.22;
+    sky = acesTone(sky);
     sky = pow(max(sky, 0.0), 1.0 / 2.2);
     return float4(sky, 1.0);
 }
 
-float3 blockTint(int block) {
-    if (block == 1) return float3(0.27, 0.64, 0.10);
-    if (block == 2) return float3(0.39, 0.20, 0.055);
-    if (block == 3) return float3(0.47, 0.48, 0.48);
-    if (block == 4) return float3(0.47, 0.23, 0.055);
-    if (block == 5) return float3(0.10, 0.40, 0.08);
-    return float3(0.20, 0.28, 0.38);
+float4 PSMain(VSOutput input) : SV_Target0 {
+    float3 geometricNormal = normalize(input.normal);
+    MaterialSample material = sampleMaterial(input.material, input.worldPosition, geometricNormal);
+    float3 n = detailNormal(input.material, input.worldPosition, geometricNormal);
+
+    float3 sunDirection = normalize(float3(-0.52, 0.63, -0.44));
+    float direct = max(dot(n, sunDirection), 0.0);
+    float skyLight = saturate(n.y * 0.52 + 0.48);
+    float3 halfVector = normalize(sunDirection + normalize(float3(pushData.eyeX, pushData.eyeY, pushData.eyeZ) - input.worldPosition));
+    float specular = pow(saturate(dot(n, halfVector)), lerp(13.0, 75.0, 1.0 - material.roughness));
+    specular *= (1.0 - material.roughness) * 0.28;
+
+    float cavity = saturate(material.cavity);
+    float ambientOcclusion = 1.0 - cavity * 0.58;
+    float contact = 0.92 + 0.08 * smoothstep(0.0, 2.0, input.worldPosition.y);
+
+    float3 warmSun = float3(1.08, 0.89, 0.65);
+    float3 coolSky = float3(0.37, 0.53, 0.77);
+    float3 lighting = warmSun * (0.20 + direct * 1.10) + coolSky * (0.12 + skyLight * 0.24);
+    float3 lit = material.albedo * lighting * ambientOcclusion * contact;
+    lit += warmSun * specular;
+    lit += material.albedo * material.emissive;
+
+    // Height and distance layers are deliberately strong enough to make deep valleys read as deep.
+    float heightWarmth = saturate((input.worldPosition.y - 4.0) / 22.0);
+    lit += float3(0.045, 0.026, 0.008) * heightWarmth;
+
+    float fogAmount = saturate((input.depth - 40.0) / 110.0);
+    float3 fogColor = float3(0.105, 0.165, 0.235);
+    float verticalFog = saturate(1.0 - (input.worldPosition.y - 3.0) / 35.0);
+    fogAmount = saturate(fogAmount + verticalFog * fogAmount * 0.18);
+    lit = lerp(lit, fogColor, fogAmount * 0.72);
+
+    lit = acesTone(lit);
+    lit = pow(max(lit, 0.0), 1.0 / 2.2);
+    return float4(lit, 1.0);
 }
 
-float roundedBoxMask(float2 p, float2 center, float2 halfSize, float radius) {
-    float2 q = abs(p - center) - halfSize + radius;
-    float distance = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
-    return 1.0 - smoothstep(-1.2, 1.2, distance);
+float boxMask(float2 p, float2 center, float2 halfSize, float softness) {
+    float2 q = abs(p - center) - halfSize;
+    float outside = length(max(q, 0.0));
+    float inside = min(max(q.x, q.y), 0.0);
+    return 1.0 - smoothstep(0.0, softness, outside + inside);
+}
+
+float ringMask(float2 p, float radius, float thickness) {
+    return 1.0 - smoothstep(thickness, thickness + 0.0018, abs(length(p) - radius));
 }
 
 float4 PSHud(FullscreenOutput input) : SV_Target0 {
-    float2 pixel = input.uv * float2(pushData.viewportWidth, pushData.viewportHeight);
-    float2 center = float2(pushData.viewportWidth, pushData.viewportHeight) * 0.5;
-    float alpha = 0.0;
-    float3 color = 0.0;
+    float2 uv = input.uv;
+    float2 px = (uv - 0.5) * float2(pushData.viewportWidth / max(pushData.viewportHeight, 1.0), 1.0);
+    float aspectPixel = pushData.viewportWidth / max(pushData.viewportHeight, 1.0);
 
-    // Fine ivory crosshair with a dark under-stroke.
-    float horizontal = (abs(pixel.y - center.y) < 1.35 && abs(pixel.x - center.x) < 10.0) ? 1.0 : 0.0;
-    float vertical = (abs(pixel.x - center.x) < 1.35 && abs(pixel.y - center.y) < 10.0) ? 1.0 : 0.0;
-    float cross = max(horizontal, vertical);
-    if (cross > 0.0) {
-        color = float3(0.95, 0.88, 0.68);
-        alpha = 0.88;
+    float alpha = 0.0;
+    float3 color = float3(0.0, 0.0, 0.0);
+
+    // Fine central crosshair with a gold-white center and subtle dark backing.
+    float crossH = boxMask(px, float2(0, 0), float2(0.018, 0.00145), 0.0012);
+    float crossV = boxMask(px, float2(0, 0), float2(0.00145, 0.018), 0.0012);
+    float centerCut = 1.0 - boxMask(px, float2(0, 0), float2(0.0045, 0.0045), 0.0010);
+    float cross = max(crossH, crossV) * centerCut;
+    color = lerp(color, float3(0.94, 0.88, 0.69), cross);
+    alpha = max(alpha, cross * 0.92);
+
+    float centerGem = ringMask(px, 0.0062, 0.0018);
+    color = lerp(color, float3(0.30, 0.68, 1.00), centerGem);
+    alpha = max(alpha, centerGem * 0.95);
+
+    // Mining progress ring only appears once structural damage exists.
+    if (pushData.miningProgress > 0.001) {
+        float radius = 0.031;
+        float angle = atan2(px.y, px.x);
+        float normalizedAngle = frac(angle / 6.2831853 + 0.25);
+        float ring = ringMask(px, radius, 0.0028);
+        float progress = step(normalizedAngle, saturate(pushData.miningProgress));
+        float active = ring * progress;
+        color = lerp(color, float3(1.00, 0.68, 0.17), active);
+        alpha = max(alpha, active * 0.92);
     }
 
-    // Nine-slot dark forged hotbar. Five starter block slots are tinted from the real block palette.
-    float slot = min(pushData.viewportWidth / 16.0, 58.0);
-    float gap = 5.0;
-    float total = slot * 9.0 + gap * 8.0;
-    float startX = center.x - total * 0.5 + slot * 0.5;
-    float slotY = pushData.viewportHeight - slot * 0.72;
-    int selected = clamp((int)round(pushData.selectedMaterial), 1, 5) - 1;
+    // Compact mining-mode badge at bottom-left. Gold = block, blue = micro, split cyan/gold = mixed.
+    float2 badgeCenter = float2(-aspectPixel * 0.5 + 0.16, -0.435);
+    float badge = boxMask(px, badgeCenter, float2(0.125, 0.030), 0.008);
+    float3 modeColor = pushData.miningMode < 0.5 ? float3(0.93, 0.63, 0.18) :
+                       (pushData.miningMode < 1.5 ? float3(0.23, 0.66, 1.00) : float3(0.36, 0.88, 0.80));
+    color = lerp(color, modeColor * 0.24, badge);
+    alpha = max(alpha, badge * 0.66);
 
-    [unroll]
+    // Nine-slot survival hotbar silhouette, styled after the forged inventory frame.
+    float hotbarY = -0.425;
     for (int i = 0; i < 9; ++i) {
-        float2 slotCenter = float2(startX + i * (slot + gap), slotY);
-        float outer = roundedBoxMask(pixel, slotCenter, float2(slot * 0.50, slot * 0.50), 7.0);
-        float inner = roundedBoxMask(pixel, slotCenter, float2(slot * 0.41, slot * 0.41), 5.0);
-        float border = saturate(outer - inner);
-        if (outer > 0.0) {
-            float3 frame = i == selected ? float3(0.92, 0.65, 0.22) : float3(0.19, 0.23, 0.29);
-            float3 panel = float3(0.025, 0.035, 0.05);
-            float3 localColor = lerp(panel, frame, border);
-            if (i < 5 && inner > 0.0) {
-                float item = roundedBoxMask(pixel, slotCenter, float2(slot * 0.23, slot * 0.23), 3.0);
-                localColor = lerp(localColor, blockTint(i + 1), item * 0.92);
-            }
-            color = lerp(color, localColor, outer);
-            alpha = max(alpha, outer * 0.91);
-        }
+        float slotX = (float(i) - 4.0) * 0.064;
+        float slot = boxMask(px, float2(slotX, hotbarY), float2(0.028, 0.028), 0.004);
+        float edge = slot - boxMask(px, float2(slotX, hotbarY), float2(0.023, 0.023), 0.003);
+        color = lerp(color, float3(0.025, 0.032, 0.045), slot * 0.78);
+        color = lerp(color, float3(0.51, 0.34, 0.13), edge);
+        alpha = max(alpha, slot * 0.72);
     }
 
     return float4(color, alpha);
