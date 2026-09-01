@@ -3,9 +3,11 @@
 #ifdef _WIN32
 
 #include "core/jobs/JobSystem.h"
+#include "core/settings/GameSettings.h"
 #include "game/PlayerController.h"
 #include "game/drops/DropSystem.h"
 #include "game/inventory/Inventory.h"
+#include "game/mining/MiningCadence.h"
 #include "game/mining/MiningSystem.h"
 #include "world/FrontierWorld.h"
 #include "world/meshing/MicroDetailBuilder.h"
@@ -40,8 +42,10 @@ public:
     void onKeyDown(WPARAM key);
     void onKeyUp(WPARAM key);
     void onMouseDelta(float dx, float dy);
-    void onMouseButton(bool primary);
+    void onMouseButtonDown(bool primary);
+    void onMouseButtonUp(bool primary);
     void setPaused(bool paused) noexcept;
+    void applySettings(const core::settings::GameSettings& settings) noexcept;
     void saveNow();
 
     [[nodiscard]] bool initialized() const noexcept { return initialized_; }
@@ -98,6 +102,8 @@ private:
         std::future<world::VoxelMesh> future;
     };
 
+    // Kept below Vulkan's guaranteed 128-byte push-constant minimum. Inventory entries are packed as
+    // itemId in bits 0..7 and stack count in bits 8..15 to keep the gameplay HUD data-driven.
     struct PushData {
         float time{};
         float aspect{16.0f / 9.0f};
@@ -115,7 +121,20 @@ private:
         float targetBlockY{};
         float targetBlockZ{};
         float targetActive{};
+        float fovScale{1.0f};
+        std::uint32_t hotbar0{};
+        std::uint32_t hotbar1{};
+        std::uint32_t hotbar2{};
+        std::uint32_t hotbar3{};
+        std::uint32_t hotbar4{};
+        std::uint32_t hotbar5{};
+        std::uint32_t hotbar6{};
+        std::uint32_t hotbar7{};
+        std::uint32_t hotbar8{};
+        std::uint32_t selectedHotbar{};
+        float foliageQuality{2.0f};
     };
+    static_assert(sizeof(PushData) <= 128, "RuneForge push constants must remain portable");
 
     static constexpr std::size_t kFramesInFlight = 1;
     static constexpr int kStartupGpuRadius = 1;
@@ -144,6 +163,7 @@ private:
     bool recreateSwapchain();
     void recordCommandBuffer(VkCommandBuffer commandBuffer, std::uint32_t imageIndex);
     void updateGameplay(float deltaSeconds);
+    void updateMining(float deltaSeconds);
     void updatePushData(float elapsedSeconds);
     void updateWindowTitle();
     void mineTargetBlock();
@@ -212,7 +232,9 @@ private:
     game::PlayerController player_;
     game::inventory::Inventory inventory_;
     game::mining::MiningSystem mining_;
+    game::mining::MiningCadence miningCadence_;
     game::drops::DropSystem drops_;
+    core::settings::GameSettings settings_{};
     std::map<world::BlockId, std::size_t> microHarvestCells_;
     std::optional<world::BlockCoord> currentMiningTarget_;
     float currentMiningProgress_{};
