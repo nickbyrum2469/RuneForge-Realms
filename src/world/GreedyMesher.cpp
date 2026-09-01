@@ -19,6 +19,24 @@ struct FaceKey {
 
 constexpr std::array<int, 3> dimensions{VoxelChunk::sizeX, VoxelChunk::sizeY, VoxelChunk::sizeZ};
 
+BlockId sample(const ChunkMeshingSnapshot& snapshot, int x, int y, int z) noexcept {
+    if (y < 0 || y >= VoxelChunk::sizeY) return BlockId::Air;
+
+    if (x < 0) {
+        return snapshot.negativeX ? snapshot.negativeX->get(VoxelChunk::sizeX - 1, y, z) : BlockId::Air;
+    }
+    if (x >= VoxelChunk::sizeX) {
+        return snapshot.positiveX ? snapshot.positiveX->get(0, y, z) : BlockId::Air;
+    }
+    if (z < 0) {
+        return snapshot.negativeZ ? snapshot.negativeZ->get(x, y, VoxelChunk::sizeZ - 1) : BlockId::Air;
+    }
+    if (z >= VoxelChunk::sizeZ) {
+        return snapshot.positiveZ ? snapshot.positiveZ->get(x, y, 0) : BlockId::Air;
+    }
+    return snapshot.center.get(x, y, z);
+}
+
 void emitQuad(VoxelMesh& mesh, const std::array<int, 3>& origin,
               const std::array<int, 3>& du, const std::array<int, 3>& dv,
               int axis, int sign, SurfaceMaterial material) {
@@ -65,6 +83,12 @@ void VoxelMesh::append(const VoxelMesh& source, float offsetX, float offsetY, fl
 }
 
 VoxelMesh GreedyMesher::build(const VoxelChunk& chunk) {
+    ChunkMeshingSnapshot snapshot;
+    snapshot.center = chunk;
+    return build(snapshot);
+}
+
+VoxelMesh GreedyMesher::build(const ChunkMeshingSnapshot& snapshot) {
     VoxelMesh mesh;
     for (int axis = 0; axis < 3; ++axis) {
         const int u = (axis + 1) % 3;
@@ -82,8 +106,8 @@ VoxelMesh GreedyMesher::build(const VoxelChunk& chunk) {
                     b[axis] = slice + 1;
                     a[u] = b[u] = i;
                     a[v] = b[v] = j;
-                    const BlockId blockA = chunk.get(a[0], a[1], a[2]);
-                    const BlockId blockB = chunk.get(b[0], b[1], b[2]);
+                    const BlockId blockA = sample(snapshot, a[0], a[1], a[2]);
+                    const BlockId blockB = sample(snapshot, b[0], b[1], b[2]);
                     FaceKey face{};
                     if (isSolid(blockA) && !isSolid(blockB)) {
                         face = {true, +1, surfaceMaterial(blockA, axis, +1)};
@@ -97,18 +121,24 @@ VoxelMesh GreedyMesher::build(const VoxelChunk& chunk) {
             for (int j = 0; j < height; ++j) {
                 for (int i = 0; i < width;) {
                     const FaceKey key = mask[static_cast<std::size_t>(i + width * j)];
-                    if (!key.visible) { ++i; continue; }
+                    if (!key.visible) {
+                        ++i;
+                        continue;
+                    }
 
                     int rectWidth = 1;
                     while (i + rectWidth < width &&
-                           mask[static_cast<std::size_t>(i + rectWidth + width * j)] == key) ++rectWidth;
+                           mask[static_cast<std::size_t>(i + rectWidth + width * j)] == key) {
+                        ++rectWidth;
+                    }
 
                     int rectHeight = 1;
                     bool grow = true;
                     while (j + rectHeight < height && grow) {
                         for (int x = 0; x < rectWidth; ++x) {
                             if (!(mask[static_cast<std::size_t>(i + x + width * (j + rectHeight))] == key)) {
-                                grow = false; break;
+                                grow = false;
+                                break;
                             }
                         }
                         if (grow) ++rectHeight;
