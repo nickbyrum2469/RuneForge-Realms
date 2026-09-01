@@ -32,6 +32,8 @@ public:
     [[nodiscard]] bool initialized() const noexcept { return initialized_; }
     [[nodiscard]] const std::wstring& lastError() const noexcept { return lastError_; }
     [[nodiscard]] const std::string& gpuName() const noexcept { return gpuName_; }
+    [[nodiscard]] std::uint32_t sceneQuadCount() const noexcept { return sceneQuadCount_; }
+    [[nodiscard]] std::uint32_t sceneBlockCount() const noexcept { return sceneBlockCount_; }
 
 private:
     struct QueueFamilies {
@@ -53,21 +55,26 @@ private:
         VkCommandBuffer commandBuffer{VK_NULL_HANDLE};
     };
 
+    struct BufferResource {
+        VkBuffer buffer{VK_NULL_HANDLE};
+        VkDeviceMemory memory{VK_NULL_HANDLE};
+        VkDeviceSize size{};
+    };
+
     struct PushData {
         float time{};
         float aspect{16.0f / 9.0f};
         float yaw{-0.65f};
-        float pitch{0.30f};
-        float distance{12.5f};
+        float pitch{0.36f};
+        float distance{26.0f};
         float pad0{};
         float pad1{};
         float pad2{};
     };
 
-    // One frame in flight intentionally protects the single shared depth image in this first
-    // renderer proof. The next renderer-memory pass will move depth/transient attachments per frame.
+    // One frame in flight still protects the first shared depth attachment. Mesh uploads are
+    // device-local now; the next memory-system pass can introduce per-frame transient resources.
     static constexpr std::size_t kFramesInFlight = 1;
-    static constexpr std::uint32_t kSceneInstanceCount = 110;
 
     bool createInstance();
     bool createSurface();
@@ -80,9 +87,11 @@ private:
     bool createDepthResources();
     bool createFramebuffers();
     bool createCommandResources();
+    bool createSceneMesh();
     bool createSyncObjects();
 
     void destroySwapchainResources();
+    void destroySceneMesh();
     bool recreateSwapchain();
     void recordCommandBuffer(VkCommandBuffer commandBuffer, std::uint32_t imageIndex);
 
@@ -96,6 +105,13 @@ private:
     VkExtent2D chooseExtent(const VkSurfaceCapabilitiesKHR& capabilities) const;
     VkFormat chooseDepthFormat() const;
     std::uint32_t findMemoryType(std::uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
+
+    bool createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
+                      BufferResource& output);
+    bool uploadDeviceLocal(const void* data, VkDeviceSize size, VkBufferUsageFlags finalUsage,
+                           BufferResource& output);
+    bool copyBuffer(VkBuffer source, VkBuffer destination, VkDeviceSize size);
+    void destroyBuffer(BufferResource& resource);
 
     std::vector<std::uint32_t> readSpirv(const std::filesystem::path& path) const;
     std::filesystem::path executableDirectory() const;
@@ -141,6 +157,12 @@ private:
     VkCommandPool commandPool_{VK_NULL_HANDLE};
     std::array<FrameSync, kFramesInFlight> frames_{};
     std::size_t currentFrame_{0};
+
+    BufferResource vertexBuffer_{};
+    BufferResource indexBuffer_{};
+    std::uint32_t indexCount_{0};
+    std::uint32_t sceneQuadCount_{0};
+    std::uint32_t sceneBlockCount_{0};
 
     std::chrono::steady_clock::time_point startTime_{};
     PushData pushData_{};
