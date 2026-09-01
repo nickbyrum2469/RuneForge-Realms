@@ -9,7 +9,7 @@
 
 void runRegistryTests() {
     const auto oldVersion = rf::Version::parse("0.1.0");
-    const auto currentVersion = rf::Version::parse("v0.3.2");
+    const auto currentVersion = rf::Version::parse("v0.4.0");
     assert(oldVersion && currentVersion && *currentVersion > *oldVersion);
     assert(oldVersion->toString() == "0.1.0");
     assert(!rf::Version::parse("0.1"));
@@ -27,6 +27,12 @@ void runRegistryTests() {
     assert(stone.hardness > 1.0f);
 
     const auto& material = rf::render::materials::MaterialRegistry::get(rf::world::SurfaceMaterial::Stone);
-    assert(material.name == "weathered_stone");
-    assert(material.detailProfile == "fractured_rock");
+    assert(material.name == "fractured_stone");
+    assert(material.detailProfile == "fractured_plate_rock");
+    assert(material.reliefStrength > 0.5f);
+
+    assert(rf::world::surfaceMaterial(rf::world::BlockId::Grass, 1, +1) == rf::world::SurfaceMaterial::GrassTop);
+    assert(rf::world::surfaceMaterial(rf::world::BlockId::Grass, 0, +1) == rf::world::SurfaceMaterial::GrassSide);
+    assert(rf::world::surfaceMaterial(rf::world::BlockId::Wood, 1, +1) == rf::world::SurfaceMaterial::WoodCut);
+    assert(rf::world::surfaceMaterial(rf::world::BlockId::Wood, 2, +1) == rf::world::SurfaceMaterial::WoodBark);
 }
