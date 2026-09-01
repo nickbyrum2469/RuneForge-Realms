@@ -11,9 +11,11 @@ struct FaceKey {
     bool visible{false};
     int sign{};
     SurfaceMaterial material{SurfaceMaterial::Dirt};
+    std::uint8_t damageStage{};
 
     [[nodiscard]] bool operator==(const FaceKey& other) const noexcept {
-        return visible == other.visible && sign == other.sign && material == other.material;
+        return visible == other.visible && sign == other.sign && material == other.material &&
+               damageStage == other.damageStage;
     }
 };
 
@@ -22,33 +24,34 @@ constexpr std::array<int, 3> dimensions{VoxelChunk::sizeX, VoxelChunk::sizeY, Vo
 BlockId sample(const ChunkMeshingSnapshot& snapshot, int x, int y, int z) noexcept {
     if (y < 0 || y >= VoxelChunk::sizeY) return BlockId::Air;
 
-    if (x < 0) {
-        return snapshot.negativeX ? snapshot.negativeX->get(VoxelChunk::sizeX - 1, y, z) : BlockId::Air;
-    }
-    if (x >= VoxelChunk::sizeX) {
-        return snapshot.positiveX ? snapshot.positiveX->get(0, y, z) : BlockId::Air;
-    }
-    if (z < 0) {
-        return snapshot.negativeZ ? snapshot.negativeZ->get(x, y, VoxelChunk::sizeZ - 1) : BlockId::Air;
-    }
-    if (z >= VoxelChunk::sizeZ) {
-        return snapshot.positiveZ ? snapshot.positiveZ->get(x, y, 0) : BlockId::Air;
-    }
+    if (x < 0) return snapshot.negativeX ? snapshot.negativeX->get(VoxelChunk::sizeX - 1, y, z) : BlockId::Air;
+    if (x >= VoxelChunk::sizeX) return snapshot.positiveX ? snapshot.positiveX->get(0, y, z) : BlockId::Air;
+    if (z < 0) return snapshot.negativeZ ? snapshot.negativeZ->get(x, y, VoxelChunk::sizeZ - 1) : BlockId::Air;
+    if (z >= VoxelChunk::sizeZ) return snapshot.positiveZ ? snapshot.positiveZ->get(x, y, 0) : BlockId::Air;
     return snapshot.center.get(x, y, z);
+}
+
+std::uint8_t damageStageAt(const ChunkMeshingSnapshot& snapshot, int x, int y, int z) noexcept {
+    const BlockCoord worldPosition{snapshot.worldOriginX + x, y, snapshot.worldOriginZ + z};
+    for (const auto& state : snapshot.damageBlocks) {
+        if (state.position == worldPosition) return state.stage;
+    }
+    return 0;
 }
 
 void emitQuad(VoxelMesh& mesh, const std::array<int, 3>& origin,
               const std::array<int, 3>& du, const std::array<int, 3>& dv,
-              int axis, int sign, SurfaceMaterial material) {
+              int axis, int sign, SurfaceMaterial material, std::uint8_t damageStage) {
     const float normal[3]{
         axis == 0 ? static_cast<float>(sign) : 0.0f,
         axis == 1 ? static_cast<float>(sign) : 0.0f,
         axis == 2 ? static_cast<float>(sign) : 0.0f,
     };
+    const std::uint32_t packed = packMaterial(material, damageStage);
 
     auto vertex = [&](const std::array<int, 3>& p) {
         return MeshVertex{static_cast<float>(p[0]), static_cast<float>(p[1]), static_cast<float>(p[2]),
-                          normal[0], normal[1], normal[2], static_cast<std::uint32_t>(material)};
+                          normal[0], normal[1], normal[2], packed};
     };
 
     const std::array<int, 3> p0 = origin;
@@ -57,11 +60,8 @@ void emitQuad(VoxelMesh& mesh, const std::array<int, 3>& origin,
     const std::array<int, 3> p3{origin[0] + dv[0], origin[1] + dv[1], origin[2] + dv[2]};
 
     const std::uint32_t base = static_cast<std::uint32_t>(mesh.vertices.size());
-    if (sign > 0) {
-        mesh.vertices.insert(mesh.vertices.end(), {vertex(p0), vertex(p1), vertex(p2), vertex(p3)});
-    } else {
-        mesh.vertices.insert(mesh.vertices.end(), {vertex(p0), vertex(p3), vertex(p2), vertex(p1)});
-    }
+    if (sign > 0) mesh.vertices.insert(mesh.vertices.end(), {vertex(p0), vertex(p1), vertex(p2), vertex(p3)});
+    else mesh.vertices.insert(mesh.vertices.end(), {vertex(p0), vertex(p3), vertex(p2), vertex(p1)});
     mesh.indices.insert(mesh.indices.end(), {base, base + 1, base + 2, base, base + 2, base + 3});
     ++mesh.quadCount;
 }
@@ -110,9 +110,11 @@ VoxelMesh GreedyMesher::build(const ChunkMeshingSnapshot& snapshot) {
                     const BlockId blockB = sample(snapshot, b[0], b[1], b[2]);
                     FaceKey face{};
                     if (isSolid(blockA) && !isSolid(blockB)) {
-                        face = {true, +1, surfaceMaterial(blockA, axis, +1)};
+                        face = {true, +1, surfaceMaterial(blockA, axis, +1),
+                                damageStageAt(snapshot, a[0], a[1], a[2])};
                     } else if (!isSolid(blockA) && isSolid(blockB)) {
-                        face = {true, -1, surfaceMaterial(blockB, axis, -1)};
+                        face = {true, -1, surfaceMaterial(blockB, axis, -1),
+                                damageStageAt(snapshot, b[0], b[1], b[2])};
                     }
                     mask[static_cast<std::size_t>(i + width * j)] = face;
                 }
@@ -121,16 +123,11 @@ VoxelMesh GreedyMesher::build(const ChunkMeshingSnapshot& snapshot) {
             for (int j = 0; j < height; ++j) {
                 for (int i = 0; i < width;) {
                     const FaceKey key = mask[static_cast<std::size_t>(i + width * j)];
-                    if (!key.visible) {
-                        ++i;
-                        continue;
-                    }
+                    if (!key.visible) { ++i; continue; }
 
                     int rectWidth = 1;
                     while (i + rectWidth < width &&
-                           mask[static_cast<std::size_t>(i + rectWidth + width * j)] == key) {
-                        ++rectWidth;
-                    }
+                           mask[static_cast<std::size_t>(i + rectWidth + width * j)] == key) ++rectWidth;
 
                     int rectHeight = 1;
                     bool grow = true;
@@ -152,7 +149,7 @@ VoxelMesh GreedyMesher::build(const ChunkMeshingSnapshot& snapshot) {
                     std::array<int, 3> dv{};
                     du[u] = rectWidth;
                     dv[v] = rectHeight;
-                    emitQuad(mesh, origin, du, dv, axis, key.sign, key.material);
+                    emitQuad(mesh, origin, du, dv, axis, key.sign, key.material, key.damageStage);
 
                     for (int y = 0; y < rectHeight; ++y) {
                         for (int x = 0; x < rectWidth; ++x) {
