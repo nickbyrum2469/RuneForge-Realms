@@ -15,9 +15,9 @@ constexpr std::array<const char*, 1> requiredDeviceExtensions{VK_KHR_SWAPCHAIN_E
 bool VulkanRenderer::createInstance() {
     VkApplicationInfo appInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO};
     appInfo.pApplicationName = "RuneForge Realms";
-    appInfo.applicationVersion = VK_MAKE_API_VERSION(0, 0, 3, 0);
+    appInfo.applicationVersion = VK_MAKE_API_VERSION(0, 0, 3, 1);
     appInfo.pEngineName = "RuneForge Native";
-    appInfo.engineVersion = VK_MAKE_API_VERSION(0, 0, 3, 0);
+    appInfo.engineVersion = VK_MAKE_API_VERSION(0, 0, 3, 1);
     appInfo.apiVersion = VK_API_VERSION_1_3;
 
     const std::array<const char*, 2> extensions{VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_EXTENSION_NAME};
