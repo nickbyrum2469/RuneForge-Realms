@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <string>
+#include <utility>
 
 namespace rf::render {
 
@@ -280,9 +281,7 @@ void VulkanRenderer::updateWindowTitle() {
     const std::string material(world::blockName(selectedBlock_));
     std::wstring selected(material.begin(), material.end());
     std::wstring gpu(gpuName_.begin(), gpuName_.end());
-    std::wstring title = L"RuneForge Realms " + std::wstring(RF_VERSION_STRING, RF_VERSION_STRING + std::char_traits<char>::length(RF_VERSION_STRING));
-    // RF_VERSION_STRING is ASCII; rebuild explicitly for a wide title.
-    title = L"RuneForge Realms ";
+    std::wstring title = L"RuneForge Realms ";
     for (const char* p = RF_VERSION_STRING; *p; ++p) title.push_back(static_cast<wchar_t>(*p));
     title += paused_ ? L" - PAUSED" : L" - Frontier Realms Survival";
     title += L" | Block: " + selected;
