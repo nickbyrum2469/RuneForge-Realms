@@ -1,0 +1,16 @@
+build/
+out/
+staging/
+.vs/
+.idea/
+*.user
+*.suo
+*.VC.db
+*.pdb
+*.ilk
+*.obj
+*.exe
+*.zip
+RuneForgeRealms.update.zip
+.rf_update/
+runtime.previous/
