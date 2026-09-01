@@ -20,10 +20,10 @@ VulkanRenderer::~VulkanRenderer() { shutdown(); }
 bool VulkanRenderer::initializeSession() {
     if (continueExisting_) {
         if (const auto saved = save::loadFrontierSave(savePath_)) {
-            world_.generate(saved->seed);
+            const auto center = world::chunkFromWorld(saved->playerPosition.x, saved->playerPosition.z);
+            world_.generate(saved->seed, center);
             for (const auto& edit : saved->edits) world_.applyEdit(edit);
             player_.spawn(saved->playerPosition, saved->yaw, saved->pitch);
-            world_.updateStreaming(saved->playerPosition.x, saved->playerPosition.z);
             sessionReady_ = true;
             return true;
         }
@@ -292,7 +292,8 @@ void VulkanRenderer::updateWindowTitle() {
     title += L" | XYZ " + std::to_wstring(static_cast<int>(std::floor(position.x))) + L", " +
              std::to_wstring(static_cast<int>(std::floor(position.y))) + L", " +
              std::to_wstring(static_cast<int>(std::floor(position.z)));
-    title += L" | Chunks " + std::to_wstring(world_.loadedChunkCount());
+    title += L" | Visible " + std::to_wstring(visibleChunkCount_) + L"/" + std::to_wstring(world_.loadedChunkCount());
+    title += L" | Pending " + std::to_wstring(world_.pendingChunkCount());
     title += L" | " + gpu;
     if (paused_) title += L" | Esc: Resume | H: Save + Main Menu";
     else title += L" | WASD Move | Mouse Look | LMB Break | RMB Place | 1-5 Blocks | Esc Pause";

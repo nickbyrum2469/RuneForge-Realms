@@ -26,6 +26,9 @@ public:
                                           int retainRadius,
                                           const Generator& generator);
 
+    void insert(ChunkCoord coord, VoxelChunk chunk, ChunkState state = ChunkState::Dirty);
+    [[nodiscard]] std::vector<ChunkCoord> evictOutside(ChunkCoord center, int retainRadius);
+
     [[nodiscard]] VoxelChunk* find(ChunkCoord coord) noexcept;
     [[nodiscard]] const VoxelChunk* find(ChunkCoord coord) const noexcept;
     [[nodiscard]] bool contains(ChunkCoord coord) const noexcept;

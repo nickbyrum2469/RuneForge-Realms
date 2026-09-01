@@ -63,7 +63,13 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         shell: pwsh
         run: |
-          $notes = "Native RuneForge Realms build $env:VERSION. This build includes the Vulkan 1.3 renderer foundation and first GPU-rendered voxel scene. Download the Windows x64 ZIP, extract it, and run RuneForgeBootstrap.exe. Future published versions are detected by the bootstrapper on startup."
+          $notes = @"
+          Native RuneForge Realms build $env:VERSION.
+
+          Download RuneForgeRealms-Windows-x64.zip, extract it, and run RuneForgeBootstrap.exe. Existing installations launched through the bootstrapper detect newer published versions automatically.
+
+          This package was rebuilt from the merged main commit and passed the release workflow's native Windows build and test gate.
+          "@
           if (gh release view $env:TAG 2>$null) {
             Write-Host "Release $env:TAG already exists; replacing assets only."
           } else {

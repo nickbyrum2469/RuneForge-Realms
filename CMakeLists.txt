@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(RuneForgeRealms VERSION 0.3.1 LANGUAGES C CXX)
+project(RuneForgeRealms VERSION 0.3.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,9 +17,11 @@ add_library(runeforge_core STATIC
     src/world/GreedyMesher.cpp
     src/world/chunks/ChunkManager.cpp
     src/world/generation/TerrainGenerator.cpp
+    src/world/streaming/ChunkStreamer.cpp
     src/world/blocks/BlockRegistry.cpp
     src/world/FrontierWorld.cpp
     src/render/materials/MaterialRegistry.cpp
+    src/render/culling/ChunkVisibility.cpp
     src/game/PlayerController.cpp
     src/save/FrontierSave.cpp
 )
