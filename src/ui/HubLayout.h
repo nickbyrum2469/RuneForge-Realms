@@ -20,12 +20,13 @@ struct HubLayout {
     static constexpr float height = 900.0f;
 
     Rect leftRail{0, 0, 170, 900};
-    Rect featured{195, 245, 1030, 350};
-    Rect playButton{215, 510, 230, 70};
-    Rect partyPanel{1260, 245, 315, 350};
+    Rect featured{195, 230, 920, 375};
+    Rect continueButton{220, 505, 205, 68};
+    Rect newGameButton{445, 505, 230, 68};
+    Rect statusPanel{1135, 230, 440, 375};
     Rect newsBar{195, 868, 1380, 26};
-    std::array<Rect, 6> nav{};
-    std::array<Rect, 6> cards{};
+    std::array<Rect, 4> nav{};
+    std::array<Rect, 5> featureCards{};
 
     HubLayout();
 };
