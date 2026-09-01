@@ -44,10 +44,17 @@ private:
     void drawFeatureCards();
     void drawNewsBar();
     void drawCastle(float x, float y, float scale, D2D1_COLOR_F stone);
+    void drawVoxelTree(float x, float y, float scale, int seed);
+    void drawMountainBand(float baseY, float opacity, D2D1_COLOR_F value, int seed);
+    void drawGem(float x, float y, float size);
+    void drawDivider(float x, float y, float width);
+    void drawPanelFrame(const Rect& rect, bool gold = false, float radius = 10.0f);
+    void drawMiniScene(const Rect& rect, std::size_t index);
 
     void fillRect(const Rect& rect, D2D1_COLOR_F color, float radius = 0.0f);
     void strokeRect(const Rect& rect, D2D1_COLOR_F color, float thickness = 1.0f, float radius = 0.0f);
     void fillGradient(const Rect& rect, D2D1_COLOR_F top, D2D1_COLOR_F bottom);
+    void fillRadial(float centerX, float centerY, float radius, D2D1_COLOR_F inner, D2D1_COLOR_F outer);
     void text(std::wstring_view value, const Rect& rect, IDWriteTextFormat* format, D2D1_COLOR_F color,
               DWRITE_TEXT_ALIGNMENT alignment = DWRITE_TEXT_ALIGNMENT_LEADING);
     void blockCluster(float x, float y, float w, float h, D2D1_COLOR_F base, int seed, float cell = 9.0f);
