@@ -3,6 +3,7 @@
 #include "render/vulkan/VulkanRenderer.h"
 
 #include "render/scene/ChunkCulling.h"
+#include "world/meshing/MicroDetailBuilder.h"
 
 #include <chrono>
 #include <cstring>
@@ -144,6 +145,7 @@ bool VulkanRenderer::createSceneMesh() {
         if (!snapshot) continue;
 
         world::VoxelMesh local = world::GreedyMesher::build(*snapshot);
+        world::meshing::MicroDetailBuilder::append(*snapshot, local);
         world::VoxelMesh translated;
         translated.append(local, static_cast<float>(coord.x * world::VoxelChunk::sizeX), 0.0f,
                           static_cast<float>(coord.z * world::VoxelChunk::sizeZ));
@@ -194,6 +196,7 @@ bool VulkanRenderer::queueChunkMesh(world::ChunkCoord coord) {
             revision,
             meshJobs_.submitResult([snapshot = *snapshot, coord]() mutable {
                 world::VoxelMesh local = world::GreedyMesher::build(snapshot);
+                world::meshing::MicroDetailBuilder::append(snapshot, local);
                 world::VoxelMesh translated;
                 translated.append(local, static_cast<float>(coord.x * world::VoxelChunk::sizeX), 0.0f,
                                   static_cast<float>(coord.z * world::VoxelChunk::sizeZ));
