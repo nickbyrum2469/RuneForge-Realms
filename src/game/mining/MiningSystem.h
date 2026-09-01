@@ -5,6 +5,7 @@
 #include "world/WorldEdit.h"
 
 #include <map>
+#include <vector>
 
 namespace rf::world { class FrontierWorld; }
 
@@ -18,6 +19,11 @@ struct MiningOutcome {
     float damageProgress{};
 };
 
+struct MiningDamageState {
+    world::BlockCoord position{};
+    float progress{};
+};
+
 class MiningSystem {
 public:
     void setMode(MiningMode mode) noexcept { mode_ = mode; }
@@ -27,7 +33,10 @@ public:
     [[nodiscard]] MiningOutcome strike(world::FrontierWorld& world, const world::RaycastHit& hit,
                                        float toolPower = 1.0f);
     void clearDamage(world::BlockCoord position) noexcept { damage_.erase(position); }
+    void clearAllDamage() noexcept { damage_.clear(); }
     [[nodiscard]] float damageAt(world::BlockCoord position) const noexcept;
+    [[nodiscard]] std::vector<MiningDamageState> damageStates() const;
+    void restoreDamage(const std::vector<MiningDamageState>& states);
 
 private:
     [[nodiscard]] static int microChipRadius(world::BlockId block, MiningMode mode) noexcept;
