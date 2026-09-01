@@ -48,6 +48,14 @@ void runPersistenceTests() {
     data.miningMode = rf::game::mining::MiningMode::Micro;
     assert(data.inventory.add(rf::game::items::ItemId::StoneBlock, 23) == 0);
     data.inventory.selectHotbar(0);
+    data.miningDamage = {
+        {{4, 9, 4}, 0.42f},
+        {{5, 9, 4}, 0.78f},
+    };
+    data.microHarvestCells[static_cast<std::size_t>(rf::world::BlockId::Stone)] = 377;
+    data.microHarvestCells[static_cast<std::size_t>(rf::world::BlockId::Dirt)] = 41;
+    data.drops.push_back({19, rf::game::items::ItemId::OakLog, 2,
+                          {3.5f, 8.2f, -1.5f}, {0.3f, 1.1f, -0.2f}, 3.0f});
     data.edits = {
         {{1, 5, 1}, rf::world::BlockId::Air},
         {{600, 6, 1}, rf::world::BlockId::Stone},
@@ -69,18 +77,39 @@ void runPersistenceTests() {
     assert(loaded->miningMode == rf::game::mining::MiningMode::Micro);
     assert(loaded->inventory.slot(0).item == rf::game::items::ItemId::StoneBlock);
     assert(loaded->inventory.slot(0).count == 23);
+    assert(loaded->miningDamage.size() == 2);
+    assert(loaded->miningDamage[0].position == data.miningDamage[0].position);
+    assert(loaded->miningDamage[0].progress == data.miningDamage[0].progress);
+    assert(loaded->microHarvestCells[static_cast<std::size_t>(rf::world::BlockId::Stone)] == 377);
+    assert(loaded->microHarvestCells[static_cast<std::size_t>(rf::world::BlockId::Dirt)] == 41);
+    assert(loaded->drops.size() == 1);
+    assert(loaded->drops.front().id == 19);
+    assert(loaded->drops.front().item == rf::game::items::ItemId::OakLog);
+    assert(loaded->drops.front().count == 2);
     assert(loaded->edits.size() == data.edits.size());
     assert(loaded->microEdits.size() == 1);
     assert(loaded->microEdits.front().occupancyWords == data.microEdits.front().occupancyWords);
 
+    // Serializer record counts must describe the lines actually emitted, even if a caller hands
+    // save code invalid/transient state. Invalid records are omitted rather than corrupting parsing.
+    data.miningDamage.push_back({{6, 9, 4}, 0.0f});
+    data.drops.push_back({20, rf::game::items::ItemId::None, 0, {}, {}, 0.0f});
+    assert(rf::save::saveFrontierSave(savePath, data));
+    const auto sanitized = rf::save::loadFrontierSave(savePath);
+    assert(sanitized && sanitized->miningDamage.size() == 2 && sanitized->drops.size() == 1);
+
     // A full save removes obsolete region and micro-region files rather than resurrecting stale edits.
     data.edits.resize(1);
     data.microEdits.clear();
+    data.miningDamage.clear();
+    data.microHarvestCells.fill(0);
+    data.drops.clear();
     assert(rf::save::saveFrontierSave(savePath, data));
     assert(fileCount(currentDir / "regions", ".rfr") == 1);
     assert(fileCount(currentDir / "micro-regions", ".rfm") == 0);
     const auto trimmed = rf::save::loadFrontierSave(savePath);
     assert(trimmed && trimmed->edits.size() == 1 && trimmed->microEdits.empty());
+    assert(trimmed->miningDamage.empty() && trimmed->drops.empty());
 
     // Existing 0.3.x schema-1 saves remain loadable, then migrate forward to schema 3.
     const fs::path legacyDir = root / "legacy";
@@ -98,6 +127,7 @@ void runPersistenceTests() {
     const auto oldSave = rf::save::loadFrontierSave(legacyPath);
     assert(oldSave && oldSave->seed == 99u && oldSave->edits.size() == 1);
     assert(oldSave->miningMode == rf::game::mining::MiningMode::Mixed);
+    assert(oldSave->miningDamage.empty() && oldSave->drops.empty());
     assert(rf::save::saveFrontierSave(legacyPath, *oldSave));
     assert(fileCount(legacyDir / "regions", ".rfr") == 1);
 
