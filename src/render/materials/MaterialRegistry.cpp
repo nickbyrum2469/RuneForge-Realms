@@ -11,6 +11,9 @@ constexpr std::array<MaterialDefinition, MaterialRegistry::materialCount> kMater
     {world::SurfaceMaterial::WoodBark, "oak_bark", 0.90f, 0.0f, 0.0f, 0.76f, 16.0f, 0.45f, "bark_chunks"},
     {world::SurfaceMaterial::WoodCut, "oak_endgrain", 0.86f, 0.0f, 0.0f, 0.66f, 13.0f, 0.26f, "growth_rings"},
     {world::SurfaceMaterial::Leaves, "oak_leaf_cluster", 0.83f, 0.0f, 0.0f, 0.62f, 18.0f, 0.38f, "leaf_clusters"},
+    {world::SurfaceMaterial::FlowerWhite, "flower_white", 0.72f, 0.0f, 0.04f, 1.0f, 20.0f, 0.18f, "flower_petals"},
+    {world::SurfaceMaterial::FlowerYellow, "flower_yellow", 0.70f, 0.0f, 0.06f, 1.0f, 20.0f, 0.18f, "flower_petals"},
+    {world::SurfaceMaterial::FlowerBlue, "flower_blue", 0.68f, 0.0f, 0.05f, 1.0f, 20.0f, 0.18f, "flower_petals"},
 }};
 
 } // namespace
