@@ -1,15 +1,32 @@
 #include "world/FrontierWorld.h"
 
 #include "world/generation/TerrainGenerator.h"
+#include "world/growth/GrassGrowth.h"
+#include "world/meshing/MicroDetailBuilder.h"
 #include "world/meshing/MicroVoxelMesher.h"
 
 #include <algorithm>
 #include <cmath>
+#include <set>
 
 namespace rf::world {
+namespace {
+
+micro::MicroCoord microCoordFromWorld(BlockCoord block, float wx, float wy, float wz) noexcept {
+    const auto cell = [](float value, int blockValue) {
+        const float local = std::clamp(value - static_cast<float>(blockValue), 0.0f, 0.999999f);
+        return static_cast<std::uint8_t>(
+            std::clamp(static_cast<int>(local * micro::resolution), 0, micro::resolution - 1));
+    };
+    return {cell(wx, block.x), cell(wy, block.y), cell(wz, block.z)};
+}
+
+} // namespace
 
 void FrontierWorld::generate(std::uint32_t seed) {
     seed_ = seed;
+    worldAgeSeconds_ = 0.0f;
+    growthEpoch_ = 0;
     chunks_.clear();
     editsByChunk_.clear();
     microByChunk_.clear();
@@ -47,6 +64,20 @@ bool FrontierWorld::updateStreaming(float worldX, float worldZ) {
     return delta.changed();
 }
 
+bool FrontierWorld::advanceSimulation(float deltaSeconds) {
+    worldAgeSeconds_ += std::clamp(deltaSeconds, 0.0f, 0.25f);
+    const auto epoch = static_cast<std::uint32_t>(worldAgeSeconds_ / growth::GrassGrowth::growthStepSeconds);
+    if (epoch == growthEpoch_) return false;
+    growthEpoch_ = epoch;
+    markAllLoadedDirty();
+    return true;
+}
+
+void FrontierWorld::setWorldAgeSeconds(float value) noexcept {
+    worldAgeSeconds_ = std::max(0.0f, value);
+    growthEpoch_ = static_cast<std::uint32_t>(worldAgeSeconds_ / growth::GrassGrowth::growthStepSeconds);
+}
+
 void FrontierWorld::applyStoredEditsToChunk(ChunkCoord coord) {
     VoxelChunk* chunk = chunks_.find(coord);
     if (!chunk) return;
@@ -65,12 +96,17 @@ BlockId FrontierWorld::getBlock(int x, int y, int z) const noexcept {
     return chunk->get(localBlockX(x), y, localBlockZ(z));
 }
 
-const micro::MicroVoxelState* FrontierWorld::microState(BlockCoord position) const noexcept {
+const FrontierWorld::PromotedBlock* FrontierWorld::promotedBlock(BlockCoord position) const noexcept {
     const ChunkCoord coord = chunkFromBlock(position.x, position.z);
     const auto chunkIt = microByChunk_.find(coord);
     if (chunkIt == microByChunk_.end()) return nullptr;
     const auto blockIt = chunkIt->second.find(position);
-    return blockIt == chunkIt->second.end() ? nullptr : &blockIt->second.state;
+    return blockIt == chunkIt->second.end() ? nullptr : &blockIt->second;
+}
+
+const micro::MicroVoxelState* FrontierWorld::microState(BlockCoord position) const noexcept {
+    const auto* promoted = promotedBlock(position);
+    return promoted ? &promoted->state : nullptr;
 }
 
 void FrontierWorld::markAdjacentChunksDirty(ChunkCoord coord) noexcept {
@@ -88,64 +124,64 @@ void FrontierWorld::markMeshNeighborhoodDirty(ChunkCoord coord, int localX, int 
     if (localZ == VoxelChunk::sizeZ - 1) chunks_.markDirty({coord.x, coord.z + 1});
 }
 
+void FrontierWorld::markAllLoadedDirty() noexcept {
+    for (const ChunkCoord coord : chunks_.loadedCoords()) chunks_.markDirty(coord);
+}
+
 bool FrontierWorld::setBlock(int x, int y, int z, BlockId block, bool recordEdit) {
     if (y < 0 || y >= VoxelChunk::sizeY) return false;
     const BlockCoord position{x, y, z};
     const ChunkCoord coord = chunkFromBlock(x, z);
     if (recordEdit) editsByChunk_[coord][position] = block;
 
+    bool hadMicro = false;
     if (auto microChunk = microByChunk_.find(coord); microChunk != microByChunk_.end()) {
-        microChunk->second.erase(position);
+        hadMicro = microChunk->second.erase(position) > 0;
         if (microChunk->second.empty()) microByChunk_.erase(microChunk);
     }
 
     VoxelChunk* chunk = chunks_.find(coord);
-    if (!chunk) return recordEdit;
+    if (!chunk) return recordEdit || hadMicro;
 
     const int localX = localBlockX(x);
     const int localZ = localBlockZ(z);
-    if (chunk->get(localX, y, localZ) == block) {
-        markMeshNeighborhoodDirty(coord, localX, localZ);
-        return false;
-    }
+    const BlockId previous = chunk->get(localX, y, localZ);
+    if (previous == block && !hadMicro) return false;
     chunk->set(localX, y, localZ, block);
     markMeshNeighborhoodDirty(coord, localX, localZ);
     return true;
 }
 
-bool FrontierWorld::chipBlock(const RaycastHit& hit) {
-    if (!hit.hit || hit.block.y <= 0) return false;
-    const BlockId block = getBlock(hit.block.x, hit.block.y, hit.block.z);
-    if (!isSolid(block)) return false;
+MicroChipResult FrontierWorld::chipBlock(BlockCoord position, float worldHitX, float worldHitY,
+                                          float worldHitZ, int radiusCells) {
+    MicroChipResult result;
+    if (position.y <= 0 || radiusCells <= 0) return result;
+    const BlockId block = getBlock(position.x, position.y, position.z);
+    if (!isSolid(block)) return result;
 
-    const ChunkCoord coord = chunkFromBlock(hit.block.x, hit.block.z);
-    auto& promoted = microByChunk_[coord][hit.block];
+    const ChunkCoord coord = chunkFromBlock(position.x, position.z);
+    auto& promoted = microByChunk_[coord][position];
     promoted.block = block;
 
-    micro::MicroCoord center = hit.micro;
-    if (!hit.microResolved) {
-        const auto cell = [](float worldValue, int blockValue) {
-            const float local = std::clamp(worldValue - static_cast<float>(blockValue), 0.0f, 0.999999f);
-            return static_cast<std::uint8_t>(std::clamp(static_cast<int>(local * micro::resolution), 0, micro::resolution - 1));
-        };
-        center = {cell(hit.worldX, hit.block.x), cell(hit.worldY, hit.block.y), cell(hit.worldZ, hit.block.z)};
-    }
+    const micro::MicroCoord center = microCoordFromWorld(position, worldHitX, worldHitY, worldHitZ);
+    result.removedCells = promoted.state.clearSphere(center, radiusCells);
+    result.changed = result.removedCells > 0;
+    result.solidFraction = promoted.state.solidFraction();
+    if (!result.changed) return result;
 
-    int radius = 1;
-    if (block == BlockId::Grass || block == BlockId::Dirt || block == BlockId::Leaves) radius = 2;
-    const std::size_t removed = promoted.state.clearSphere(center, radius);
-    if (removed == 0) return false;
-
-    const int localX = localBlockX(hit.block.x);
-    const int localZ = localBlockZ(hit.block.z);
+    const int localX = localBlockX(position.x);
+    const int localZ = localBlockZ(position.z);
     if (promoted.state.empty()) {
-        microByChunk_[coord].erase(hit.block);
+        result.emptied = true;
+        result.solidFraction = 0.0f;
+        microByChunk_[coord].erase(position);
         if (microByChunk_[coord].empty()) microByChunk_.erase(coord);
-        return setBlock(hit.block.x, hit.block.y, hit.block.z, BlockId::Air, true);
+        (void)setBlock(position.x, position.y, position.z, BlockId::Air, true);
+        return result;
     }
 
     markMeshNeighborhoodDirty(coord, localX, localZ);
-    return true;
+    return result;
 }
 
 int FrontierWorld::topSolidY(int x, int z) const noexcept {
@@ -222,8 +258,8 @@ RaycastHit FrontierWorld::raycast(float ox, float oy, float oz,
     dz /= len;
 
     constexpr float step = micro::cellSize * 0.28f;
-    BlockCoord previous{static_cast<int>(std::floor(ox)), static_cast<int>(std::floor(oy)),
-                        static_cast<int>(std::floor(oz))};
+    BlockCoord lastEmpty{static_cast<int>(std::floor(ox)), static_cast<int>(std::floor(oy)),
+                         static_cast<int>(std::floor(oz))};
     for (float distance = 0.0f; distance <= maxDistance; distance += step) {
         const float wx = ox + dx * distance;
         const float wy = oy + dy * distance;
@@ -231,24 +267,18 @@ RaycastHit FrontierWorld::raycast(float ox, float oy, float oz,
         const BlockCoord current{static_cast<int>(std::floor(wx)), static_cast<int>(std::floor(wy)),
                                  static_cast<int>(std::floor(wz))};
         const BlockId block = getBlock(current.x, current.y, current.z);
-        if (isSolid(block)) {
-            const auto cell = [](float worldValue, int blockValue) {
-                const float local = std::clamp(worldValue - static_cast<float>(blockValue), 0.0f, 0.999999f);
-                return static_cast<std::uint8_t>(std::clamp(static_cast<int>(local * micro::resolution), 0, micro::resolution - 1));
-            };
-            const micro::MicroCoord microCoord{cell(wx, current.x), cell(wy, current.y), cell(wz, current.z)};
-            const auto* promoted = microState(current);
-            if (!promoted || promoted->occupied(microCoord.x, microCoord.y, microCoord.z)) {
-                const float priorDistance = std::max(0.0f, distance - step * 1.5f);
-                const BlockCoord adjacent{
-                    static_cast<int>(std::floor(ox + dx * priorDistance)),
-                    static_cast<int>(std::floor(oy + dy * priorDistance)),
-                    static_cast<int>(std::floor(oz + dz * priorDistance)),
-                };
-                return {true, current, adjacent, microCoord, wx, wy, wz, true};
-            }
+        if (!isSolid(block)) {
+            lastEmpty = current;
+            continue;
         }
-        previous = current;
+
+        const micro::MicroCoord cell = microCoordFromWorld(current, wx, wy, wz);
+        const auto* promoted = microState(current);
+        if (promoted && !promoted->occupied(cell.x, cell.y, cell.z)) {
+            lastEmpty = current;
+            continue;
+        }
+        return {true, current, lastEmpty, cell, wx, wy, wz, true};
     }
     return {};
 }
@@ -263,16 +293,58 @@ std::optional<ChunkMeshingSnapshot> FrontierWorld::chunkMeshingSnapshot(ChunkCoo
     if (const VoxelChunk* chunk = chunks_.find({coord.x + 1, coord.z})) snapshot.positiveX = *chunk;
     if (const VoxelChunk* chunk = chunks_.find({coord.x, coord.z - 1})) snapshot.negativeZ = *chunk;
     if (const VoxelChunk* chunk = chunks_.find({coord.x, coord.z + 1})) snapshot.positiveZ = *chunk;
+    snapshot.worldSeed = seed_;
+    snapshot.worldAgeSeconds = worldAgeSeconds_;
+    snapshot.worldOriginX = coord.x * VoxelChunk::sizeX;
+    snapshot.worldOriginZ = coord.z * VoxelChunk::sizeZ;
 
-    if (const auto promotedChunk = microByChunk_.find(coord); promotedChunk != microByChunk_.end()) {
-        snapshot.microBlocks.reserve(promotedChunk->second.size());
+    // A damaged block and its direct solid neighbors are meshed at the same 8^3 physical
+    // resolution. The intact neighbors are temporary full masks, not persistent state. This
+    // prevents boundary cracks and avoids a visual resolution jump when the first chip lands.
+    std::set<BlockCoord> candidates;
+    constexpr std::array<BlockCoord, 7> offsets{{
+        {0, 0, 0}, {-1, 0, 0}, {1, 0, 0}, {0, -1, 0},
+        {0, 1, 0}, {0, 0, -1}, {0, 0, 1},
+    }};
+    const std::array<ChunkCoord, 5> sourceChunks{{
+        coord, {coord.x - 1, coord.z}, {coord.x + 1, coord.z},
+        {coord.x, coord.z - 1}, {coord.x, coord.z + 1},
+    }};
+    for (const ChunkCoord source : sourceChunks) {
+        const auto promotedChunk = microByChunk_.find(source);
+        if (promotedChunk == microByChunk_.end()) continue;
         for (const auto& [position, promoted] : promotedChunk->second) {
-            if (position.y < 0 || position.y >= VoxelChunk::sizeY) continue;
-            const int lx = localBlockX(position.x);
-            const int lz = localBlockZ(position.z);
-            if (!isSolid(snapshot.center.get(lx, position.y, lz))) continue;
-            snapshot.microBlocks.push_back({lx, position.y, lz, promoted.block, promoted.state});
+            (void)promoted;
+            for (const auto& offset : offsets) {
+                candidates.insert({position.x + offset.x, position.y + offset.y, position.z + offset.z});
+            }
+        }
+    }
+
+    for (const BlockCoord position : candidates) {
+        if (position.y < 0 || position.y >= VoxelChunk::sizeY) continue;
+        const int lx = position.x - snapshot.worldOriginX;
+        const int lz = position.z - snapshot.worldOriginZ;
+        if (lx < -1 || lx > VoxelChunk::sizeX || lz < -1 || lz > VoxelChunk::sizeZ) continue;
+        if ((lx < 0 || lx >= VoxelChunk::sizeX) && (lz < 0 || lz >= VoxelChunk::sizeZ)) continue;
+
+        const BlockId block = getBlock(position.x, position.y, position.z);
+        if (!isSolid(block)) continue;
+        micro::MicroVoxelState state;
+        if (const auto* persistent = promotedBlock(position)) state = persistent->state;
+        const bool owned = lx >= 0 && lx < VoxelChunk::sizeX && lz >= 0 && lz < VoxelChunk::sizeZ;
+        snapshot.microBlocks.push_back({lx, position.y, lz, block, state, owned});
+
+        if (owned) {
             snapshot.center.set(lx, position.y, lz, BlockId::Air);
+        } else if (lx == -1 && snapshot.negativeX && lz >= 0 && lz < VoxelChunk::sizeZ) {
+            snapshot.negativeX->set(VoxelChunk::sizeX - 1, position.y, lz, BlockId::Air);
+        } else if (lx == VoxelChunk::sizeX && snapshot.positiveX && lz >= 0 && lz < VoxelChunk::sizeZ) {
+            snapshot.positiveX->set(0, position.y, lz, BlockId::Air);
+        } else if (lz == -1 && snapshot.negativeZ && lx >= 0 && lx < VoxelChunk::sizeX) {
+            snapshot.negativeZ->set(lx, position.y, VoxelChunk::sizeZ - 1, BlockId::Air);
+        } else if (lz == VoxelChunk::sizeZ && snapshot.positiveZ && lx >= 0 && lx < VoxelChunk::sizeX) {
+            snapshot.positiveZ->set(lx, position.y, 0, BlockId::Air);
         }
     }
     return snapshot;
@@ -283,6 +355,7 @@ VoxelMesh FrontierWorld::buildChunkMesh(ChunkCoord coord) const {
     if (!snapshot) return {};
     VoxelMesh local = GreedyMesher::build(*snapshot);
     meshing::MicroVoxelMesher::append(*snapshot, local);
+    meshing::MicroDetailBuilder::append(*snapshot, local);
     VoxelMesh translated;
     translated.append(local, static_cast<float>(coord.x * VoxelChunk::sizeX), 0.0f,
                       static_cast<float>(coord.z * VoxelChunk::sizeZ));
@@ -305,6 +378,15 @@ std::size_t FrontierWorld::solidBlockCount() const noexcept {
         if (chunk) result += chunk->solidBlockCount();
     }
     return result;
+}
+
+std::size_t FrontierWorld::promotedBlockCount() const noexcept {
+    std::size_t count = 0;
+    for (const auto& [coord, blocks] : microByChunk_) {
+        (void)coord;
+        count += blocks.size();
+    }
+    return count;
 }
 
 std::vector<ChunkCoord> FrontierWorld::takeUnloadedChunkCoords() {
@@ -357,11 +439,11 @@ void FrontierWorld::applyMicroEdit(const micro::MicroVoxelEdit& edit) {
     const micro::MicroVoxelState state = micro::stateFromEdit(edit);
     if (state.full()) return;
     if (state.empty()) {
-        setBlock(edit.position.x, edit.position.y, edit.position.z, BlockId::Air, false);
+        (void)setBlock(edit.position.x, edit.position.y, edit.position.z, BlockId::Air, false);
         return;
     }
 
-    setBlock(edit.position.x, edit.position.y, edit.position.z, edit.block, false);
+    (void)setBlock(edit.position.x, edit.position.y, edit.position.z, edit.block, false);
     const ChunkCoord coord = chunkFromBlock(edit.position.x, edit.position.z);
     microByChunk_[coord][edit.position] = PromotedBlock{edit.block, state};
     markMeshNeighborhoodDirty(coord, localBlockX(edit.position.x), localBlockZ(edit.position.z));
