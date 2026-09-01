@@ -11,6 +11,7 @@ struct MicroBlockSnapshot {
     int localZ{};
     BlockId block{BlockId::Stone};
     MicroVoxelState state{};
+    bool owned{true}; // false means neighbor halo used only for visibility/occupancy queries.
 };
 
 } // namespace rf::world::micro
