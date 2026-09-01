@@ -25,6 +25,7 @@ public:
     using Generator = std::function<VoxelChunk(ChunkCoord)>;
 
     static constexpr int prefetchBudgetPerUpdate = 10;
+    static constexpr std::size_t maxPendingChunks = 128;
 
     struct Record {
         VoxelChunk voxels;
