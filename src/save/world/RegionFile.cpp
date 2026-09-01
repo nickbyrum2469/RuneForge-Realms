@@ -4,6 +4,7 @@
 
 #include <fstream>
 #include <map>
+#include <set>
 #include <string>
 
 namespace rf::save::worldstore {
@@ -56,8 +57,22 @@ bool RegionFile::writeAll(const std::filesystem::path& directory, const std::vec
 
     std::map<RegionCoord, std::vector<rf::world::BlockEdit>> grouped;
     for (const auto& edit : edits) grouped[regionForBlock(edit.position.x, edit.position.z)].push_back(edit);
+
+    std::set<std::filesystem::path> expected;
     for (const auto& [coord, regionEdits] : grouped) {
-        if (!writeOne(pathFor(directory, coord), coord, regionEdits)) return false;
+        const auto path = pathFor(directory, coord);
+        if (!writeOne(path, coord, regionEdits)) return false;
+        expected.insert(path.filename());
+    }
+
+    // saveFrontierSave provides the complete edit set, so any region not represented above is stale.
+    // Delete stale files only after all replacement files have been written successfully.
+    for (const auto& entry : std::filesystem::directory_iterator(directory, ec)) {
+        if (ec) return false;
+        if (!entry.is_regular_file() || entry.path().extension() != ".rfr") continue;
+        if (expected.contains(entry.path().filename())) continue;
+        std::filesystem::remove(entry.path(), ec);
+        if (ec) return false;
     }
     return true;
 }
