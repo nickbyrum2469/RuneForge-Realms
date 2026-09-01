@@ -167,12 +167,12 @@ LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
 
         case WM_KEYDOWN:
             if (mode_ == ViewMode::Inventory) {
-                if ((wParam == 'E' || wParam == VK_ESCAPE) && (lParam & (1u << 30)) == 0) closeInventory();
+                if ((wParam == 'I' || wParam == VK_ESCAPE) && (lParam & (1u << 30)) == 0) closeInventory();
                 return 0;
             }
 
             if (mode_ == ViewMode::Frontier && renderer_) {
-                if (wParam == 'E' && (lParam & (1u << 30)) == 0 && !renderer_->paused()) {
+                if (wParam == 'I' && (lParam & (1u << 30)) == 0 && !renderer_->paused()) {
                     openInventory();
                 } else if (wParam == VK_ESCAPE && (lParam & (1u << 30)) == 0) {
                     const bool pause = !renderer_->paused();
@@ -282,6 +282,7 @@ void NativeWindow::openInventory() {
         MessageBoxW(hwnd_, L"RuneForge could not open the native inventory screen.", L"RuneForge Inventory", MB_OK | MB_ICONERROR);
         return;
     }
+    inventoryPainter_->setInventory(renderer_->inventory(), renderer_->miningMode());
 
     RECT client{};
     GetClientRect(hwnd_, &client);
@@ -337,11 +338,11 @@ void NativeWindow::handleAction(rf::ui::HubAction action) {
             enterFrontier(false);
             return;
         case rf::ui::HubAction::OpenWorlds:
-            MessageBoxW(hwnd_, L"World management arrives after the first native save slot. Continue and New World are active now.",
+            MessageBoxW(hwnd_, L"World management is being expanded around Frontier's persistent save. Continue and New World are active now.",
                         L"RuneForge Worlds", MB_OK | MB_ICONINFORMATION);
             return;
         case rf::ui::HubAction::OpenSettings:
-            MessageBoxW(hwnd_, L"Graphics, input and accessibility settings are being built into the native UI.\n\nFrontier controls: WASD, mouse, Space, Shift, Ctrl, E inventory, LMB/RMB, 1-5, F5, Esc.",
+            MessageBoxW(hwnd_, L"Graphics, input and accessibility settings are being built into the native UI.\n\nFrontier controls: WASD, mouse, Space, Shift, Ctrl, I inventory, M mining mode, LMB mine, RMB place, 1-9 hotbar, F5 save, Esc pause.",
                         L"RuneForge Settings", MB_OK | MB_ICONINFORMATION);
             return;
         case rf::ui::HubAction::Quit:
