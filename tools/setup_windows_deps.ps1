@@ -6,9 +6,16 @@ $dxcRoot = Join-Path $depsRoot 'dxc'
 
 New-Item -ItemType Directory -Force -Path $depsRoot | Out-Null
 
-$existing = Get-ChildItem -Path $dxcRoot -Filter dxc.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+function Find-X64Dxc([string]$root) {
+    if (-not (Test-Path $root)) { return $null }
+    return Get-ChildItem -Path $root -Filter dxc.exe -Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match '[\\/]bin[\\/]x64[\\/]dxc\.exe$' } |
+        Select-Object -First 1
+}
+
+$existing = Find-X64Dxc $dxcRoot
 if ($existing) {
-    Write-Host "DXC already installed: $($existing.FullName)"
+    Write-Host "DXC x64 already installed: $($existing.FullName)"
     exit 0
 }
 
@@ -41,9 +48,9 @@ Copy-Item -Path (Join-Path $tempExtract '*') -Destination $dxcRoot -Recurse -For
 Remove-Item $tempZip -Force
 Remove-Item $tempExtract -Recurse -Force
 
-$dxc = Get-ChildItem -Path $dxcRoot -Filter dxc.exe -Recurse | Select-Object -First 1
+$dxc = Find-X64Dxc $dxcRoot
 if (-not $dxc) {
-    throw 'DXC package downloaded, but dxc.exe was not found after extraction.'
+    throw 'DXC package downloaded, but bin/x64/dxc.exe was not found after extraction.'
 }
 
-Write-Host "DXC installed: $($dxc.FullName)"
+Write-Host "DXC x64 installed: $($dxc.FullName)"
