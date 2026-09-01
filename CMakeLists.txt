@@ -18,12 +18,21 @@ add_library(runeforge_core STATIC
     src/world/chunks/ChunkManager.cpp
     src/world/generation/TerrainGenerator.cpp
     src/world/blocks/BlockRegistry.cpp
+    src/world/micro/MicroVoxelState.cpp
+    src/world/micro/MicroVoxelEdit.cpp
+    src/world/meshing/MicroVoxelMesher.cpp
+    src/world/meshing/MicroDetailBuilder.cpp
+    src/world/growth/GrassGrowth.cpp
     src/world/FrontierWorld.cpp
+    src/game/PlayerController.cpp
+    src/game/inventory/Inventory.cpp
+    src/game/drops/DropSystem.cpp
+    src/game/mining/MiningSystem.cpp
     src/render/materials/MaterialRegistry.cpp
     src/render/scene/ChunkCulling.cpp
-    src/game/PlayerController.cpp
     src/save/FrontierSave.cpp
     src/save/world/RegionFile.cpp
+    src/save/world/MicroRegionFile.cpp
 )
 target_include_directories(runeforge_core PUBLIC src)
 target_compile_definitions(runeforge_core PUBLIC
@@ -193,6 +202,8 @@ if(RF_BUILD_TESTS)
         tests/TestPersistence.cpp
         tests/TestRegistries.cpp
         tests/TestWorld.cpp
+        tests/TestMicroMining.cpp
+        tests/TestInventoryGrowth.cpp
     )
     target_link_libraries(runeforge_core_tests PRIVATE runeforge_core)
     add_test(NAME runeforge_core_tests COMMAND runeforge_core_tests)
