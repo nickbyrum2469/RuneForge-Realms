@@ -2,14 +2,24 @@
 
 #include "world/GreedyMesher.h"
 
+#include <cstdint>
+
 namespace rf::world::meshing {
 
-// Adds deterministic, non-colliding decorative geometry to exposed block surfaces.
-// Gameplay still sees one logical voxel; this exists only to break silhouettes and create
-// the dense turf/rock/foliage character of RuneForge's hero material references.
+enum class SurfaceDetailTier : std::uint8_t {
+    Distant = 0,
+    Standard = 1,
+    Hero = 2,
+};
+
+// Adds deterministic, non-colliding geometry to exposed block surfaces. Physical damage is
+// always represented by MicroVoxelMesher; this layer supplies the dense pristine silhouette
+// language (grass nodes, stone plates, leaf clumps) used by the reference-quality materials.
+// Tiers are selected by camera distance only. A mining strike never changes a block's detail tier.
 class MicroDetailBuilder {
 public:
-    static void append(const ChunkMeshingSnapshot& snapshot, VoxelMesh& mesh);
+    static void append(const ChunkMeshingSnapshot& snapshot, VoxelMesh& mesh,
+                       SurfaceDetailTier tier = SurfaceDetailTier::Hero);
 };
 
 } // namespace rf::world::meshing
