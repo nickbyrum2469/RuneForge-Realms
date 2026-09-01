@@ -2,6 +2,7 @@
 
 #include "platform/windows/NativeWindow.h"
 
+#include <algorithm>
 #include <string>
 #include <windowsx.h>
 
