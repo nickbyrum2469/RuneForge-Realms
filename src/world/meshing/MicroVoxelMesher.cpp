@@ -27,7 +27,6 @@ BlockId sampleBlock(const ChunkMeshingSnapshot& snapshot, int x, int y, int z) n
 
 const micro::MicroBlockSnapshot* findMicro(const ChunkMeshingSnapshot& snapshot,
                                             int x, int y, int z) noexcept {
-    if (x < 0 || x >= VoxelChunk::sizeX || z < 0 || z >= VoxelChunk::sizeZ) return nullptr;
     for (const auto& block : snapshot.microBlocks) {
         if (block.localX == x && block.y == y && block.localZ == z) return &block;
     }
@@ -101,6 +100,7 @@ void MicroVoxelMesher::append(const ChunkMeshingSnapshot& snapshot, VoxelMesh& m
     }};
 
     for (const auto& block : snapshot.microBlocks) {
+        if (!block.owned) continue;
         for (int my = 0; my < micro::resolution; ++my) {
             for (int mz = 0; mz < micro::resolution; ++mz) {
                 for (int mx = 0; mx < micro::resolution; ++mx) {
