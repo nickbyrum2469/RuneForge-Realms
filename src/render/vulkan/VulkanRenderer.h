@@ -2,6 +2,7 @@
 
 #ifdef _WIN32
 
+#include "core/jobs/JobSystem.h"
 #include "game/PlayerController.h"
 #include "world/FrontierWorld.h"
 
@@ -9,6 +10,8 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <future>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -71,6 +74,21 @@ private:
         VkDeviceSize size{};
     };
 
+    struct GpuChunkMesh {
+        BufferResource vertices{};
+        BufferResource indices{};
+        std::uint32_t indexCount{};
+        std::uint32_t quadCount{};
+        std::uint32_t solidBlockCount{};
+        std::uint64_t revision{};
+    };
+
+    struct PendingChunkMesh {
+        world::ChunkCoord coord{};
+        std::uint64_t revision{};
+        std::future<world::VoxelMesh> future;
+    };
+
     struct PushData {
         float time{};
         float aspect{16.0f / 9.0f};
@@ -102,7 +120,6 @@ private:
     bool createCommandResources();
     bool createSyncObjects();
     bool createSceneMesh();
-    bool rebuildSceneMesh();
 
     void destroySwapchainResources();
     void destroySceneMesh();
@@ -113,6 +130,16 @@ private:
     void updateWindowTitle();
     void breakTargetBlock();
     void placeTargetBlock();
+
+    void queueDirtyChunkMeshes();
+    void pumpChunkMeshJobs();
+    void removeUnloadedChunkMeshes();
+    bool uploadChunkMesh(world::ChunkCoord coord, std::uint64_t revision, const world::VoxelMesh& mesh,
+                         std::uint32_t solidBlockCount);
+    void destroyChunkMesh(GpuChunkMesh& mesh);
+    void drawSceneMeshes(VkCommandBuffer commandBuffer);
+    void refreshSceneCounters();
+    [[nodiscard]] bool meshJobPending(world::ChunkCoord coord, std::uint64_t revision) const noexcept;
 
     QueueFamilies findQueueFamilies(VkPhysicalDevice device) const;
     SwapchainSupport querySwapchainSupport(VkPhysicalDevice device) const;
@@ -186,11 +213,12 @@ private:
     std::array<FrameSync, kFramesInFlight> frames_{};
     std::size_t currentFrame_{0};
 
-    BufferResource vertexBuffer_{};
-    BufferResource indexBuffer_{};
-    std::uint32_t indexCount_{0};
+    std::map<world::ChunkCoord, GpuChunkMesh> chunkMeshes_;
+    std::vector<PendingChunkMesh> pendingChunkMeshes_;
+    core::jobs::JobSystem meshJobs_{2};
     std::uint32_t sceneQuadCount_{0};
     std::uint32_t sceneBlockCount_{0};
+    std::uint32_t visibleChunkCount_{0};
 
     std::chrono::steady_clock::time_point startTime_{};
     std::chrono::steady_clock::time_point lastFrameTime_{};
