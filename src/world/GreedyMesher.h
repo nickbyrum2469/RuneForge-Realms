@@ -28,9 +28,10 @@ struct VoxelMesh {
     void append(const VoxelMesh& source, float offsetX, float offsetY, float offsetZ);
 };
 
-// Owns the center chunk plus horizontal neighbors needed for safe background meshing.
-// `microBlocks` contains only promoted/damaged blocks. Their cells are removed from the
-// coarse center copy so MicroVoxelMesher can rebuild them at 1/8-block resolution.
+// Owns an immutable chunk snapshot plus the horizontal neighborhood needed for safe
+// background meshing. Persistent damaged blocks and temporary full-resolution halo blocks
+// live in microBlocks. The same 8x8x8 visual grid is used before and after damage so a hit
+// never causes an obvious resolution switch.
 struct ChunkMeshingSnapshot {
     VoxelChunk center;
     std::optional<VoxelChunk> negativeX;
@@ -38,6 +39,8 @@ struct ChunkMeshingSnapshot {
     std::optional<VoxelChunk> negativeZ;
     std::optional<VoxelChunk> positiveZ;
     std::vector<micro::MicroBlockSnapshot> microBlocks;
+    std::uint32_t worldSeed{};
+    float worldAgeSeconds{};
 };
 
 class GreedyMesher {
