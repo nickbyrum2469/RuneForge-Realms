@@ -16,6 +16,8 @@ constexpr std::array<BlockDefinition, BlockRegistry::blockCount> kBlocks{{
      SoundFamily::Wood, 64, SurfaceMaterial::WoodCut, SurfaceMaterial::WoodBark, SurfaceMaterial::WoodCut},
     {BlockId::Leaves, "Leaves", true, true, 0.22f, ToolClass::Hand, 0, 0.48f, 0.38f, 0.90f,
      SoundFamily::Leaves, 64, SurfaceMaterial::Leaves, SurfaceMaterial::Leaves, SurfaceMaterial::Leaves},
+    {BlockId::Water, "Water", false, true, 0.0f, ToolClass::Hand, 0, 0.0f, 0.45f, 0.0f,
+     SoundFamily::Water, 0, SurfaceMaterial::Water, SurfaceMaterial::Water, SurfaceMaterial::Water},
 }};
 
 } // namespace
