@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(RuneForgeRealms VERSION 0.3.0 LANGUAGES C CXX)
+project(RuneForgeRealms VERSION 0.3.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,17 +7,25 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(RF_BUILD_TESTS "Build RuneForge tests" ON)
 
+find_package(Threads REQUIRED)
+
 add_library(runeforge_core STATIC
     src/core/Version.cpp
     src/core/HubModel.cpp
+    src/core/jobs/JobSystem.cpp
     src/world/VoxelChunk.cpp
     src/world/GreedyMesher.cpp
+    src/world/chunks/ChunkManager.cpp
+    src/world/generation/TerrainGenerator.cpp
+    src/world/blocks/BlockRegistry.cpp
     src/world/FrontierWorld.cpp
+    src/render/materials/MaterialRegistry.cpp
     src/game/PlayerController.cpp
     src/save/FrontierSave.cpp
 )
 target_include_directories(runeforge_core PUBLIC src)
 target_compile_definitions(runeforge_core PUBLIC RF_VERSION_STRING="${PROJECT_VERSION}")
+target_link_libraries(runeforge_core PUBLIC Threads::Threads)
 
 if(MSVC)
     target_compile_options(runeforge_core PRIVATE /W4 /permissive- /EHsc)
