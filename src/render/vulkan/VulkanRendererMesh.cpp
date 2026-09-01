@@ -8,10 +8,27 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <limits>
 
 namespace rf::render {
+namespace {
+
+void attachDamageVisuals(world::ChunkMeshingSnapshot& snapshot,
+                         const std::vector<game::mining::MiningDamageState>& states,
+                         world::ChunkCoord meshCoord) {
+    snapshot.damageBlocks.clear();
+    for (const auto& state : states) {
+        const auto damageChunk = world::chunkFromBlock(state.position.x, state.position.z);
+        if (world::chebyshevDistance(damageChunk, meshCoord) > 1) continue;
+        const auto stage = static_cast<std::uint8_t>(
+            std::clamp(static_cast<int>(std::ceil(std::clamp(state.progress, 0.0f, 1.0f) * 5.0f)), 1, 5));
+        snapshot.damageBlocks.push_back({state.position, stage});
+    }
+}
+
+} // namespace
 
 bool VulkanRenderer::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
                                   VkMemoryPropertyFlags properties, BufferResource& output) {
@@ -36,10 +53,7 @@ bool VulkanRenderer::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
 }
 
 void VulkanRenderer::destroyBuffer(BufferResource& resource) {
-    if (device_ == VK_NULL_HANDLE) {
-        resource = {};
-        return;
-    }
+    if (device_ == VK_NULL_HANDLE) { resource = {}; return; }
     if (resource.buffer != VK_NULL_HANDLE) vkDestroyBuffer(device_, resource.buffer, nullptr);
     if (resource.memory != VK_NULL_HANDLE) vkFreeMemory(device_, resource.memory, nullptr);
     resource = {};
@@ -73,9 +87,7 @@ bool VulkanRenderer::uploadDeviceLocal(const void* data, VkDeviceSize size,
                                        VkBufferUsageFlags finalUsage, BufferResource& output) {
     BufferResource staging;
     if (!createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging)) {
-        return false;
-    }
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging)) return false;
 
     void* mapped = nullptr;
     if (vkMapMemory(device_, staging.memory, 0, size, 0, &mapped) != VK_SUCCESS) {
@@ -149,23 +161,24 @@ bool VulkanRenderer::uploadChunkMesh(world::ChunkCoord coord, std::uint64_t revi
 bool VulkanRenderer::createSceneMesh() {
     const auto playerPosition = player_.position();
     const world::ChunkCoord playerChunk = world::chunkFromWorld(playerPosition.x, playerPosition.z);
+    const auto damageStates = mining_.damageStates();
 
     for (const world::ChunkCoord coord : world_.dirtyChunkCoords()) {
         if (world::chebyshevDistance(coord, playerChunk) > kStartupGpuRadius) continue;
-        const auto snapshot = world_.chunkMeshingSnapshot(coord);
-        if (!snapshot) continue;
+        const auto source = world_.chunkMeshingSnapshot(coord);
+        if (!source) continue;
+        auto snapshot = *source;
+        attachDamageVisuals(snapshot, damageStates, coord);
 
         const auto detailTier = surfaceDetailTierFor(coord);
-        world::VoxelMesh local = world::GreedyMesher::build(*snapshot);
-        world::meshing::MicroVoxelMesher::append(*snapshot, local);
-        world::meshing::MicroDetailBuilder::append(*snapshot, local, detailTier);
+        world::VoxelMesh local = world::GreedyMesher::build(snapshot);
+        world::meshing::MicroVoxelMesher::append(snapshot, local);
+        world::meshing::MicroDetailBuilder::append(snapshot, local, detailTier);
         world::VoxelMesh translated;
         translated.append(local, static_cast<float>(coord.x * world::VoxelChunk::sizeX), 0.0f,
                           static_cast<float>(coord.z * world::VoxelChunk::sizeZ));
         if (!uploadChunkMesh(coord, world_.chunkRevision(coord), detailTier, translated,
-                             static_cast<std::uint32_t>(snapshot->center.solidBlockCount()))) {
-            return false;
-        }
+                             static_cast<std::uint32_t>(snapshot.center.solidBlockCount()))) return false;
         world_.markChunkMeshQueued(coord);
     }
 
@@ -203,15 +216,17 @@ bool VulkanRenderer::queueChunkMesh(world::ChunkCoord coord) {
     }
     if (pendingChunkMeshes_.size() >= kMaxPendingChunkMeshes) return false;
 
-    const auto snapshot = world_.chunkMeshingSnapshot(coord);
-    if (!snapshot) return false;
+    const auto source = world_.chunkMeshingSnapshot(coord);
+    if (!source) return false;
+    auto snapshot = *source;
+    attachDamageVisuals(snapshot, mining_.damageStates(), coord);
 
     try {
         pendingChunkMeshes_.push_back(PendingChunkMesh{
             coord,
             revision,
             detailTier,
-            meshJobs_.submitResult([snapshot = *snapshot, coord, detailTier]() mutable {
+            meshJobs_.submitResult([snapshot = std::move(snapshot), coord, detailTier]() mutable {
                 world::VoxelMesh local = world::GreedyMesher::build(snapshot);
                 world::meshing::MicroVoxelMesher::append(snapshot, local);
                 world::meshing::MicroDetailBuilder::append(snapshot, local, detailTier);
@@ -252,12 +267,8 @@ void VulkanRenderer::pumpChunkMeshJobs() {
     using namespace std::chrono_literals;
     constexpr int uploadBudgetPerFrame = 2;
     int uploaded = 0;
-    for (auto it = pendingChunkMeshes_.begin();
-         it != pendingChunkMeshes_.end() && uploaded < uploadBudgetPerFrame;) {
-        if (it->future.wait_for(0ms) != std::future_status::ready) {
-            ++it;
-            continue;
-        }
+    for (auto it = pendingChunkMeshes_.begin(); it != pendingChunkMeshes_.end() && uploaded < uploadBudgetPerFrame;) {
+        if (it->future.wait_for(0ms) != std::future_status::ready) { ++it; continue; }
 
         const world::ChunkCoord coord = it->coord;
         const std::uint64_t revision = it->revision;
@@ -269,9 +280,7 @@ void VulkanRenderer::pumpChunkMeshJobs() {
         const auto snapshot = world_.chunkMeshingSnapshot(coord);
         if (!snapshot) continue;
         if (!uploadChunkMesh(coord, revision, detailTier, mesh,
-                             static_cast<std::uint32_t>(snapshot->center.solidBlockCount()))) {
-            return;
-        }
+                             static_cast<std::uint32_t>(snapshot->center.solidBlockCount()))) return;
         ++uploaded;
     }
 }
@@ -288,8 +297,7 @@ void VulkanRenderer::removeUnloadedChunkMeshes() {
 
 void VulkanRenderer::drawSceneMeshes(VkCommandBuffer commandBuffer) {
     const scene::ChunkCullInput cull{
-        player_.eyePosition(),
-        player_.lookDirection(),
+        player_.eyePosition(), player_.lookDirection(),
         static_cast<float>((world::FrontierWorld::streamingPrefetchRadius + 1) * world::VoxelChunk::sizeX),
     };
     visibleChunkCount_ = 0;
