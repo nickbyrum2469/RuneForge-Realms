@@ -21,6 +21,7 @@ VulkanRenderer::~VulkanRenderer() { shutdown(); }
 bool VulkanRenderer::initializeSession() {
     inventory_.clear();
     drops_.clear();
+    mining_.clearAllDamage();
     mining_.setMode(game::mining::MiningMode::Mixed);
     microHarvestCells_.clear();
     currentMiningTarget_.reset();
@@ -34,6 +35,12 @@ bool VulkanRenderer::initializeSession() {
             for (const auto& edit : saved->microEdits) world_.applyMicroEdit(edit);
             inventory_ = saved->inventory;
             mining_.setMode(saved->miningMode);
+            mining_.restoreDamage(saved->miningDamage);
+            for (std::size_t block = 1; block < saved->microHarvestCells.size(); ++block) {
+                if (saved->microHarvestCells[block] == 0) continue;
+                microHarvestCells_[static_cast<world::BlockId>(block)] = saved->microHarvestCells[block];
+            }
+            drops_.restore(saved->drops);
             player_.spawn(saved->playerPosition, saved->yaw, saved->pitch);
             world_.updateStreaming(saved->playerPosition.x, saved->playerPosition.z);
             sessionReady_ = true;
@@ -91,6 +98,7 @@ void VulkanRenderer::shutdown() {
     if (device_ != VK_NULL_HANDLE) vkDeviceWaitIdle(device_);
 
     if (device_ != VK_NULL_HANDLE) {
+        destroyDropMesh();
         destroySceneMesh();
         for (auto& frame : frames_) {
             if (frame.imageAvailable != VK_NULL_HANDLE) vkDestroySemaphore(device_, frame.imageAvailable, nullptr);
@@ -114,6 +122,7 @@ void VulkanRenderer::shutdown() {
     graphicsQueue_ = VK_NULL_HANDLE;
     presentQueue_ = VK_NULL_HANDLE;
     initialized_ = false;
+    sessionReady_ = false;
     currentFrame_ = 0;
 }
 
@@ -127,9 +136,16 @@ void VulkanRenderer::saveNow() {
     data.pitch = player_.pitch();
     data.miningMode = mining_.mode();
     data.inventory = inventory_;
+    data.miningDamage = mining_.damageStates();
+    for (const auto& [block, cells] : microHarvestCells_) {
+        const std::size_t index = static_cast<std::size_t>(block);
+        if (index >= data.microHarvestCells.size()) continue;
+        data.microHarvestCells[index] = static_cast<std::uint32_t>(cells % world::micro::cellCount);
+    }
+    data.drops = drops_.drops();
     data.edits = world_.edits();
     data.microEdits = world_.microEdits();
-    save::saveFrontierSave(savePath_, data);
+    (void)save::saveFrontierSave(savePath_, data);
     lastSaveTime_ = std::chrono::steady_clock::now();
 }
 
@@ -166,6 +182,29 @@ void VulkanRenderer::updatePushData(float elapsedSeconds) {
     const auto selected = selectedPlacementBlock();
     pushData_.selectedMaterial = selected ? static_cast<float>(static_cast<std::uint32_t>(*selected)) : -1.0f;
     pushData_.miningMode = static_cast<float>(static_cast<std::uint8_t>(mining_.mode()));
+
+    const auto direction = player_.lookDirection();
+    const auto hit = world_.raycast(eye.x, eye.y, eye.z, direction.x, direction.y, direction.z, 6.0f);
+    if (hit.hit && hit.block.y > 0) {
+        currentMiningTarget_ = hit.block;
+        if (mining_.mode() == game::mining::MiningMode::Micro) {
+            const auto* state = world_.microState(hit.block);
+            currentMiningProgress_ = state ? (1.0f - state->solidFraction()) : 0.0f;
+        } else {
+            currentMiningProgress_ = mining_.damageAt(hit.block);
+        }
+        pushData_.targetBlockX = static_cast<float>(hit.block.x);
+        pushData_.targetBlockY = static_cast<float>(hit.block.y);
+        pushData_.targetBlockZ = static_cast<float>(hit.block.z);
+        pushData_.targetActive = 1.0f;
+    } else {
+        currentMiningTarget_.reset();
+        currentMiningProgress_ = 0.0f;
+        pushData_.targetBlockX = 0.0f;
+        pushData_.targetBlockY = 0.0f;
+        pushData_.targetBlockZ = 0.0f;
+        pushData_.targetActive = 0.0f;
+    }
     pushData_.miningProgress = currentMiningProgress_;
 }
 
@@ -182,6 +221,7 @@ void VulkanRenderer::drawFrame() {
     removeUnloadedChunkMeshes();
     queueDirtyChunkMeshes();
     pumpChunkMeshJobs();
+    if (!updateDropMesh()) return;
 
     std::uint32_t imageIndex = 0;
     VkResult result = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, frame.imageAvailable, VK_NULL_HANDLE, &imageIndex);
@@ -237,6 +277,7 @@ void VulkanRenderer::setPaused(bool paused) noexcept {
     player_.setControl(game::MoveControl::Left, false);
     player_.setControl(game::MoveControl::Right, false);
     player_.setControl(game::MoveControl::Sprint, false);
+    player_.setControl(game::MoveControl::Crouch, false);
     updateWindowTitle();
 }
 
