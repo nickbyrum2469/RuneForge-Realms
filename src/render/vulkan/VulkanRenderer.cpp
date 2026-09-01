@@ -74,6 +74,8 @@ bool VulkanRenderer::initialize() {
 
 void VulkanRenderer::shutdown() {
     if (sessionReady_) saveNow();
+    meshJobs_.waitIdle();
+    pendingChunkMeshes_.clear();
     if (device_ != VK_NULL_HANDLE) vkDeviceWaitIdle(device_);
 
     if (device_ != VK_NULL_HANDLE) {
@@ -119,7 +121,7 @@ void VulkanRenderer::updateGameplay(float deltaSeconds) {
     if (paused_) return;
     player_.update(deltaSeconds, world_);
     const auto position = player_.position();
-    if (world_.updateStreaming(position.x, position.z)) worldMeshDirty_ = true;
+    (void)world_.updateStreaming(position.x, position.z);
 
     const auto now = std::chrono::steady_clock::now();
     if (now - lastSaveTime_ >= std::chrono::seconds(15)) saveNow();
@@ -150,7 +152,9 @@ void VulkanRenderer::drawFrame() {
 
     auto& frame = frames_[currentFrame_];
     vkWaitForFences(device_, 1, &frame.inFlight, VK_TRUE, UINT64_MAX);
-    if (worldMeshDirty_ && !rebuildSceneMesh()) return;
+    removeUnloadedChunkMeshes();
+    queueDirtyChunkMeshes();
+    pumpChunkMeshJobs();
 
     std::uint32_t imageIndex = 0;
     VkResult result = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, frame.imageAvailable, VK_NULL_HANDLE, &imageIndex);
@@ -256,7 +260,7 @@ void VulkanRenderer::breakTargetBlock() {
     const auto direction = player_.lookDirection();
     const auto hit = world_.raycast(eye.x, eye.y, eye.z, direction.x, direction.y, direction.z, 6.0f);
     if (!hit.hit || hit.block.y <= 0) return;
-    if (world_.setBlock(hit.block.x, hit.block.y, hit.block.z, world::BlockId::Air)) worldMeshDirty_ = true;
+    (void)world_.setBlock(hit.block.x, hit.block.y, hit.block.z, world::BlockId::Air);
 }
 
 void VulkanRenderer::placeTargetBlock() {
@@ -275,13 +279,13 @@ void VulkanRenderer::placeTargetBlock() {
     const float bz0 = static_cast<float>(hit.adjacent.z), bz1 = bz0 + 1.0f;
     const bool overlapsPlayer = px0 < bx1 && px1 > bx0 && py0 < by1 && py1 > by0 && pz0 < bz1 && pz1 > bz0;
     if (overlapsPlayer) return;
-
-    if (world_.setBlock(hit.adjacent.x, hit.adjacent.y, hit.adjacent.z, selectedBlock_)) worldMeshDirty_ = true;
+    (void)world_.setBlock(hit.adjacent.x, hit.adjacent.y, hit.adjacent.z, selectedBlock_);
 }
 
 void VulkanRenderer::updateWindowTitle() {
     if (!hwnd_) return;
     const auto position = player_.position();
+    const auto stream = world_.streamingStats();
     const std::string material(world::blockName(selectedBlock_));
     std::wstring selected(material.begin(), material.end());
     std::wstring gpu(gpuName_.begin(), gpuName_.end());
@@ -292,7 +296,8 @@ void VulkanRenderer::updateWindowTitle() {
     title += L" | XYZ " + std::to_wstring(static_cast<int>(std::floor(position.x))) + L", " +
              std::to_wstring(static_cast<int>(std::floor(position.y))) + L", " +
              std::to_wstring(static_cast<int>(std::floor(position.z)));
-    title += L" | Chunks " + std::to_wstring(world_.loadedChunkCount());
+    title += L" | Chunks " + std::to_wstring(stream.loaded) + L" + " + std::to_wstring(stream.pending) + L" pending";
+    title += L" | Visible " + std::to_wstring(visibleChunkCount_);
     title += L" | " + gpu;
     if (paused_) title += L" | Esc: Resume | H: Save + Main Menu";
     else title += L" | WASD Move | Mouse Look | LMB Break | RMB Place | 1-5 Blocks | Esc Pause";
