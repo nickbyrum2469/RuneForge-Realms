@@ -6,6 +6,7 @@
 
 #include <d2d1.h>
 #include <dwrite.h>
+#include <string>
 #include <string_view>
 #include <windows.h>
 #include <wrl/client.h>
