@@ -105,6 +105,9 @@ private:
     };
 
     static constexpr std::size_t kFramesInFlight = 1;
+    static constexpr int kStartupGpuRadius = 1;
+    static constexpr int kMeshScheduleBudgetPerFrame = 12;
+    static constexpr std::size_t kMaxPendingChunkMeshes = 64;
 
     bool initializeSession();
     bool createInstance();
@@ -131,6 +134,7 @@ private:
     void breakTargetBlock();
     void placeTargetBlock();
 
+    bool queueChunkMesh(world::ChunkCoord coord);
     void queueDirtyChunkMeshes();
     void pumpChunkMeshJobs();
     void removeUnloadedChunkMeshes();
