@@ -12,6 +12,15 @@
 #include <utility>
 
 namespace rf::render {
+namespace {
+
+std::uint32_t packHotbarStack(const game::inventory::ItemStack& stack) noexcept {
+    if (stack.empty()) return 0;
+    return (static_cast<std::uint32_t>(stack.item) & 0xffu) |
+           ((static_cast<std::uint32_t>(stack.count) & 0xffu) << 8u);
+}
+
+} // namespace
 
 VulkanRenderer::VulkanRenderer(HWND hwnd, std::filesystem::path savePath, bool continueExisting)
     : hwnd_(hwnd), savePath_(std::move(savePath)), continueExisting_(continueExisting) {}
@@ -23,6 +32,7 @@ bool VulkanRenderer::initializeSession() {
     drops_.clear();
     mining_.clearAllDamage();
     mining_.setMode(game::mining::MiningMode::Mixed);
+    miningCadence_.reset();
     microHarvestCells_.clear();
     currentMiningTarget_.reset();
     currentMiningProgress_ = 0.0f;
@@ -42,6 +52,7 @@ bool VulkanRenderer::initializeSession() {
             }
             drops_.restore(saved->drops);
             player_.spawn(saved->playerPosition, saved->yaw, saved->pitch);
+            player_.setMouseSensitivity(settings_.mouseSensitivity);
             world_.updateStreaming(saved->playerPosition.x, saved->playerPosition.z);
             sessionReady_ = true;
             return true;
@@ -54,6 +65,7 @@ bool VulkanRenderer::initializeSession() {
     world_.generate(seed == 0 ? 1337u : seed);
     const int spawnY = world_.topSolidY(0, 0);
     player_.spawn({0.5f, static_cast<float>(std::max(spawnY + 1, 2)) + 0.01f, 0.5f}, 0.65f, -0.10f);
+    player_.setMouseSensitivity(settings_.mouseSensitivity);
     sessionReady_ = true;
     return true;
 }
@@ -126,6 +138,12 @@ void VulkanRenderer::shutdown() {
     currentFrame_ = 0;
 }
 
+void VulkanRenderer::applySettings(const core::settings::GameSettings& source) noexcept {
+    settings_ = source;
+    settings_.sanitize();
+    player_.setMouseSensitivity(settings_.mouseSensitivity);
+}
+
 void VulkanRenderer::saveNow() {
     if (!sessionReady_ || savePath_.empty()) return;
     save::FrontierSaveData data;
@@ -149,12 +167,22 @@ void VulkanRenderer::saveNow() {
     lastSaveTime_ = std::chrono::steady_clock::now();
 }
 
+void VulkanRenderer::updateMining(float deltaSeconds) {
+    const auto eye = player_.eyePosition();
+    const auto direction = player_.lookDirection();
+    const auto hit = world_.raycast(eye.x, eye.y, eye.z, direction.x, direction.y, direction.z, 6.0f);
+    const world::BlockId block = hit.hit ? world_.getBlock(hit.block.x, hit.block.y, hit.block.z) : world::BlockId::Air;
+    const float interval = block == world::BlockId::Air ? 0.45f : game::mining::MiningSystem::strikeInterval(block);
+    if (miningCadence_.update(deltaSeconds, interval) && hit.hit) mineTargetBlock();
+}
+
 void VulkanRenderer::updateGameplay(float deltaSeconds) {
     if (paused_) return;
     player_.update(deltaSeconds, world_);
     const auto position = player_.position();
     (void)world_.updateStreaming(position.x, position.z);
     (void)world_.advanceSimulation(deltaSeconds);
+    updateMining(deltaSeconds);
     drops_.update(deltaSeconds, world_, position, inventory_);
 
     const auto now = std::chrono::steady_clock::now();
@@ -179,6 +207,10 @@ void VulkanRenderer::updatePushData(float elapsedSeconds) {
     pushData_.pitch = player_.pitch();
     pushData_.viewportWidth = static_cast<float>(swapchainExtent_.width);
     pushData_.viewportHeight = static_cast<float>(swapchainExtent_.height);
+    const float fovRadians = settings_.fovDegrees * 0.01745329251994329577f;
+    pushData_.fovScale = 1.0f / std::tan(fovRadians * 0.5f);
+    pushData_.foliageQuality = static_cast<float>(settings_.foliageQuality);
+
     const auto selected = selectedPlacementBlock();
     pushData_.selectedMaterial = selected ? static_cast<float>(static_cast<std::uint32_t>(*selected)) : -1.0f;
     pushData_.miningMode = static_cast<float>(static_cast<std::uint8_t>(mining_.mode()));
@@ -200,12 +232,22 @@ void VulkanRenderer::updatePushData(float elapsedSeconds) {
     } else {
         currentMiningTarget_.reset();
         currentMiningProgress_ = 0.0f;
-        pushData_.targetBlockX = 0.0f;
-        pushData_.targetBlockY = 0.0f;
-        pushData_.targetBlockZ = 0.0f;
+        pushData_.targetBlockX = pushData_.targetBlockY = pushData_.targetBlockZ = 0.0f;
         pushData_.targetActive = 0.0f;
     }
     pushData_.miningProgress = currentMiningProgress_;
+
+    const auto& slots = inventory_.slots();
+    pushData_.hotbar0 = packHotbarStack(slots[0]);
+    pushData_.hotbar1 = packHotbarStack(slots[1]);
+    pushData_.hotbar2 = packHotbarStack(slots[2]);
+    pushData_.hotbar3 = packHotbarStack(slots[3]);
+    pushData_.hotbar4 = packHotbarStack(slots[4]);
+    pushData_.hotbar5 = packHotbarStack(slots[5]);
+    pushData_.hotbar6 = packHotbarStack(slots[6]);
+    pushData_.hotbar7 = packHotbarStack(slots[7]);
+    pushData_.hotbar8 = packHotbarStack(slots[8]);
+    pushData_.selectedHotbar = static_cast<std::uint32_t>(inventory_.selectedHotbar());
 }
 
 void VulkanRenderer::drawFrame() {
@@ -272,6 +314,7 @@ void VulkanRenderer::resize(unsigned width, unsigned height) {
 
 void VulkanRenderer::setPaused(bool paused) noexcept {
     paused_ = paused;
+    miningCadence_.release();
     player_.setControl(game::MoveControl::Forward, false);
     player_.setControl(game::MoveControl::Backward, false);
     player_.setControl(game::MoveControl::Left, false);
@@ -322,10 +365,14 @@ void VulkanRenderer::onMouseDelta(float dx, float dy) {
     if (!paused_) player_.addLook(dx, dy);
 }
 
-void VulkanRenderer::onMouseButton(bool primary) {
+void VulkanRenderer::onMouseButtonDown(bool primary) {
     if (paused_) return;
-    if (primary) mineTargetBlock();
+    if (primary) miningCadence_.press();
     else placeTargetBlock();
+}
+
+void VulkanRenderer::onMouseButtonUp(bool primary) {
+    if (primary) miningCadence_.release();
 }
 
 void VulkanRenderer::spawnBlockDrop(world::BlockId block, const world::RaycastHit& hit) {
@@ -354,9 +401,13 @@ void VulkanRenderer::mineTargetBlock() {
         currentMiningProgress_ = mining_.damageAt(hit.block);
     }
 
-    const auto outcome = mining_.strike(world_, hit, 1.0f);
+    const auto outcome = mining_.strike(world_, hit);
     currentMiningProgress_ = outcome.damageProgress;
     if (!outcome.affected) return;
+
+    // Structural damage is a property of the damaged block, not the current selection. Remesh that
+    // visual state immediately so looking away cannot make cracks vanish or jump to another block.
+    world_.markBlockVisualDirty(hit.block);
 
     if (mining_.mode() == game::mining::MiningMode::Micro) {
         auto& harvested = microHarvestCells_[outcome.block];
@@ -422,8 +473,8 @@ void VulkanRenderer::updateWindowTitle() {
     title += L" | Micro " + std::to_wstring(world_.promotedBlockCount());
     title += L" | Drops " + std::to_wstring(drops_.drops().size());
     title += L" | " + gpu;
-    if (paused_) title += L" | Esc: Resume | H: Save + Main Menu";
-    else title += L" | LMB Mine | RMB Place | M Mining Mode | 1-9 Hotbar | I Inventory | Esc Pause";
+    if (paused_) title += L" | Esc: Resume";
+    else title += L" | Hold LMB Mine | RMB Place | M Mining Mode | 1-9 Hotbar | Tab/I Inventory | Esc Pause";
     SetWindowTextW(hwnd_, title.c_str());
 }
 
