@@ -31,9 +31,9 @@ void runPersistenceTests() {
     fs::create_directories(root);
 
     using rf::save::worldstore::RegionFile;
-    assert(RegionFile::regionForBlock(0, 0) == rf::save::worldstore::RegionCoord{0, 0});
-    assert(RegionFile::regionForBlock(600, 0) == rf::save::worldstore::RegionCoord{1, 0});
-    assert(RegionFile::regionForBlock(-1, 0) == rf::save::worldstore::RegionCoord{-1, 0});
+    assert((RegionFile::regionForBlock(0, 0) == rf::save::worldstore::RegionCoord{0, 0}));
+    assert((RegionFile::regionForBlock(600, 0) == rf::save::worldstore::RegionCoord{1, 0}));
+    assert((RegionFile::regionForBlock(-1, 0) == rf::save::worldstore::RegionCoord{-1, 0}));
 
     const fs::path currentDir = root / "current";
     const fs::path savePath = currentDir / "world.rfsv";
