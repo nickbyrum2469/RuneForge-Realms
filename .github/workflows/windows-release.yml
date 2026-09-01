@@ -1,0 +1,67 @@
+name: Windows Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: runeforge-windows-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION must be semantic x.y.z" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+
+      - name: Configure
+        run: cmake -S . -B build -A x64 -DRF_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Stage install
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          cmake --install build --config Release --prefix "$PWD/staging/RuneForgeRealms"
+          Copy-Item README.md staging/RuneForgeRealms/README.md
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path staging/RuneForgeRealms -DestinationPath RuneForgeRealms-Windows-x64.zip -CompressionLevel Optimal
+          $hash = (Get-FileHash RuneForgeRealms-Windows-x64.zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  RuneForgeRealms-Windows-x64.zip" | Set-Content RuneForgeRealms-Windows-x64.sha256
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: pwsh
+        run: |
+          if (gh release view $env:TAG 2>$null) {
+            Write-Host "Release $env:TAG already exists; replacing assets only."
+          } else {
+            gh release create $env:TAG --target $env:GITHUB_SHA --title "RuneForge Realms $env:VERSION" --notes "Native RuneForge Realms build $env:VERSION. Download the Windows x64 ZIP, extract it, and run RuneForgeBootstrap.exe. Future published versions are detected by the bootstrapper on startup." --latest
+          }
+          gh release upload $env:TAG RuneForgeRealms-Windows-x64.zip RuneForgeRealms-Windows-x64.sha256 --clobber
