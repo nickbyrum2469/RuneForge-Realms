@@ -25,7 +25,8 @@ public:
     void spawn(items::ItemId item, std::uint16_t count, Vec3 position, Vec3 impulse = {});
     void update(float deltaSeconds, const world::FrontierWorld& world, Vec3 playerPosition,
                 inventory::Inventory& inventory);
-    void clear() noexcept { drops_.clear(); }
+    void clear() noexcept { drops_.clear(); nextId_ = 1; }
+    void restore(const std::vector<WorldDrop>& drops);
 
     [[nodiscard]] const std::vector<WorldDrop>& drops() const noexcept { return drops_; }
 
