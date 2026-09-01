@@ -12,6 +12,25 @@ float MiningSystem::damageAt(world::BlockCoord position) const noexcept {
     return it == damage_.end() ? 0.0f : it->second;
 }
 
+std::vector<MiningDamageState> MiningSystem::damageStates() const {
+    std::vector<MiningDamageState> result;
+    result.reserve(damage_.size());
+    for (const auto& [position, progress] : damage_) {
+        if (progress <= 0.0f || progress >= 1.0f) continue;
+        result.push_back({position, progress});
+    }
+    return result;
+}
+
+void MiningSystem::restoreDamage(const std::vector<MiningDamageState>& states) {
+    damage_.clear();
+    for (const auto& state : states) {
+        const float progress = std::clamp(state.progress, 0.0f, 0.9999f);
+        if (progress <= 0.0f) continue;
+        damage_[state.position] = progress;
+    }
+}
+
 int MiningSystem::microChipRadius(world::BlockId block, MiningMode mode) noexcept {
     if (mode == MiningMode::Block) return 0;
     if (mode == MiningMode::Micro) {
