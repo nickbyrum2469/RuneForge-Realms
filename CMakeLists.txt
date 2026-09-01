@@ -26,7 +26,12 @@ add_library(runeforge_core STATIC
     src/save/world/RegionFile.cpp
 )
 target_include_directories(runeforge_core PUBLIC src)
-target_compile_definitions(runeforge_core PUBLIC RF_VERSION_STRING="${PROJECT_VERSION}")
+target_compile_definitions(runeforge_core PUBLIC
+    RF_VERSION_STRING="${PROJECT_VERSION}"
+    RF_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    RF_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+    RF_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+)
 target_link_libraries(runeforge_core PUBLIC Threads::Threads)
 
 if(MSVC)
