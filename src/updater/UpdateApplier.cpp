@@ -2,9 +2,10 @@
 
 #include "updater/UpdateApplier.h"
 
-#include <shellapi.h>
-#include <string>
 #include <windows.h>
+#include <shellapi.h>
+
+#include <string>
 
 namespace rf::updater {
 
