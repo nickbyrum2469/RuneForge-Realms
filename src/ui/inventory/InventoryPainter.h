@@ -2,11 +2,12 @@
 
 #ifdef _WIN32
 
+#include "game/inventory/Inventory.h"
+#include "game/mining/MiningMode.h"
 #include "ui/inventory/InventoryLayout.h"
 
 #include <d2d1.h>
 #include <dwrite.h>
-#include <string>
 #include <string_view>
 #include <windows.h>
 #include <wrl/client.h>
@@ -24,6 +25,8 @@ public:
     bool initialize();
     void resize(unsigned width, unsigned height);
     void draw();
+    void setInventory(const game::inventory::Inventory& inventory,
+                      game::mining::MiningMode miningMode) noexcept;
 
 private:
     void createTextResources();
@@ -37,6 +40,7 @@ private:
     void drawQuickCraft();
     void drawHotbar();
     void drawSlot(const Rect& rect, bool selected = false);
+    void drawStack(const Rect& rect, const game::inventory::ItemStack& stack);
     void drawItemCube(const Rect& rect, unsigned top, unsigned side, unsigned edge);
     void drawGem(float x, float y, float size);
     void drawDivider(float x, float y, float width);
@@ -51,6 +55,8 @@ private:
     unsigned pixelWidth_{1600};
     unsigned pixelHeight_{900};
     InventoryLayout layout_{};
+    game::inventory::Inventory inventory_{};
+    game::mining::MiningMode miningMode_{game::mining::MiningMode::Mixed};
 
     ComPtr<ID2D1Factory> d2dFactory_;
     ComPtr<IDWriteFactory> dwriteFactory_;
