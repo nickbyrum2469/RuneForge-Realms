@@ -24,6 +24,9 @@ enum class SurfaceMaterial : std::uint32_t {
     WoodBark,
     WoodCut,
     Leaves,
+    FlowerWhite,
+    FlowerYellow,
+    FlowerBlue,
 };
 
 [[nodiscard]] constexpr bool isSolid(BlockId block) noexcept {
