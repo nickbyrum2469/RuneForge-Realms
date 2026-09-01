@@ -3,6 +3,7 @@
 #include "world/GreedyMesher.h"
 #include "world/WorldEdit.h"
 #include "world/chunks/ChunkManager.h"
+#include "world/micro/MicroVoxelEdit.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -25,6 +26,8 @@ public:
     [[nodiscard]] std::uint32_t seed() const noexcept { return seed_; }
     [[nodiscard]] BlockId getBlock(int x, int y, int z) const noexcept;
     bool setBlock(int x, int y, int z, BlockId block, bool recordEdit = true);
+    bool chipBlock(const RaycastHit& hit);
+    [[nodiscard]] const micro::MicroVoxelState* microState(BlockCoord position) const noexcept;
     [[nodiscard]] int topSolidY(int x, int z) const noexcept;
     [[nodiscard]] bool collidesAabb(float minX, float minY, float minZ,
                                     float maxX, float maxY, float maxZ) const noexcept;
@@ -46,17 +49,28 @@ public:
 
     [[nodiscard]] std::vector<BlockEdit> edits() const;
     void applyEdit(const BlockEdit& edit);
-    void clearEdits() noexcept { editsByChunk_.clear(); }
+    [[nodiscard]] std::vector<micro::MicroVoxelEdit> microEdits() const;
+    void applyMicroEdit(const micro::MicroVoxelEdit& edit);
+    void clearEdits() noexcept { editsByChunk_.clear(); microByChunk_.clear(); }
 
 private:
+    struct PromotedBlock {
+        BlockId block{BlockId::Stone};
+        micro::MicroVoxelState state{};
+    };
+
     void applyStoredEditsToChunk(ChunkCoord coord);
     void markMeshNeighborhoodDirty(ChunkCoord coord, int localX, int localZ) noexcept;
     void markAdjacentChunksDirty(ChunkCoord coord) noexcept;
+    [[nodiscard]] bool microCollides(BlockCoord block, const micro::MicroVoxelState& state,
+                                     float minX, float minY, float minZ,
+                                     float maxX, float maxY, float maxZ) const noexcept;
 
     std::uint32_t seed_{1337};
     ChunkCoord streamCenter_{};
     ChunkManager chunks_;
     std::map<ChunkCoord, std::map<BlockCoord, BlockId>> editsByChunk_;
+    std::map<ChunkCoord, std::map<BlockCoord, PromotedBlock>> microByChunk_;
     std::vector<ChunkCoord> recentlyUnloaded_;
 };
 
