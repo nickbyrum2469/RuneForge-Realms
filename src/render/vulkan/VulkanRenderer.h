@@ -152,6 +152,12 @@ private:
                          const world::VoxelMesh& mesh, std::uint32_t solidBlockCount);
     void destroyChunkMesh(GpuChunkMesh& mesh);
 
+    bool updateDropMesh();
+    void drawWorldDrops(VkCommandBuffer commandBuffer);
+    void destroyDropMesh();
+    bool ensureDynamicBuffer(BufferResource& resource, VkDeviceSize requiredSize, VkBufferUsageFlags usage);
+    bool writeDynamicBuffer(BufferResource& resource, const void* data, VkDeviceSize size);
+
     QueueFamilies findQueueFamilies(VkPhysicalDevice device) const;
     SwapchainSupport querySwapchainSupport(VkPhysicalDevice device) const;
     bool deviceSuitable(VkPhysicalDevice device) const;
@@ -236,6 +242,10 @@ private:
     std::uint32_t sceneQuadCount_{0};
     std::uint32_t sceneBlockCount_{0};
     std::uint32_t visibleChunkCount_{0};
+
+    BufferResource dropVertices_{};
+    BufferResource dropIndices_{};
+    std::uint32_t dropIndexCount_{};
 
     std::chrono::steady_clock::time_point startTime_{};
     std::chrono::steady_clock::time_point lastFrameTime_{};
