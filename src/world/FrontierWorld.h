@@ -37,6 +37,7 @@ public:
 
     [[nodiscard]] BlockId getBlock(int x, int y, int z) const noexcept;
     bool setBlock(int x, int y, int z, BlockId block, bool recordEdit = true);
+    void markBlockVisualDirty(BlockCoord position) noexcept;
     [[nodiscard]] MicroChipResult chipBlock(BlockCoord position, float worldHitX, float worldHitY,
                                             float worldHitZ, int radiusCells);
     [[nodiscard]] const micro::MicroVoxelState* microState(BlockCoord position) const noexcept;
