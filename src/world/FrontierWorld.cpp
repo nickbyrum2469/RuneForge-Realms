@@ -18,7 +18,10 @@ void FrontierWorld::generate(std::uint32_t seed) {
     };
     const auto delta = chunks_.update(streamCenter_, initialChunkRadius, initialChunkRadius,
                                       initialChunkRadius + 1, generator);
-    for (const ChunkCoord coord : delta.loaded) applyStoredEditsToChunk(coord);
+    for (const ChunkCoord coord : delta.loaded) {
+        applyStoredEditsToChunk(coord);
+        markAdjacentChunksDirty(coord);
+    }
 }
 
 bool FrontierWorld::updateStreaming(float worldX, float worldZ) {
@@ -31,13 +34,14 @@ bool FrontierWorld::updateStreaming(float worldX, float worldZ) {
                                       streamingRetainRadius, generator);
     streamCenter_ = center;
 
-    for (const ChunkCoord coord : delta.loaded) applyStoredEditsToChunk(coord);
+    for (const ChunkCoord coord : delta.loaded) {
+        applyStoredEditsToChunk(coord);
+        markAdjacentChunksDirty(coord);
+    }
+    for (const ChunkCoord coord : delta.unloaded) markAdjacentChunksDirty(coord);
+
     recentlyUnloaded_.insert(recentlyUnloaded_.end(), delta.unloaded.begin(), delta.unloaded.end());
     return delta.changed();
-}
-
-VoxelChunk FrontierWorld::generateRawChunk(ChunkCoord coord) const {
-    return generation::TerrainGenerator::generateChunk(seed_, coord);
 }
 
 void FrontierWorld::applyStoredEditsToChunk(ChunkCoord coord) {
@@ -56,6 +60,13 @@ BlockId FrontierWorld::getBlock(int x, int y, int z) const noexcept {
     const VoxelChunk* chunk = chunks_.find(chunkFromBlock(x, z));
     if (!chunk) return BlockId::Air;
     return chunk->get(localBlockX(x), y, localBlockZ(z));
+}
+
+void FrontierWorld::markAdjacentChunksDirty(ChunkCoord coord) noexcept {
+    chunks_.markDirty({coord.x - 1, coord.z});
+    chunks_.markDirty({coord.x + 1, coord.z});
+    chunks_.markDirty({coord.x, coord.z - 1});
+    chunks_.markDirty({coord.x, coord.z + 1});
 }
 
 void FrontierWorld::markMeshNeighborhoodDirty(ChunkCoord coord, int localX, int localZ) noexcept {
@@ -135,10 +146,23 @@ RaycastHit FrontierWorld::raycast(float ox, float oy, float oz,
     return {};
 }
 
+std::optional<ChunkMeshingSnapshot> FrontierWorld::chunkMeshingSnapshot(ChunkCoord coord) const {
+    const VoxelChunk* center = chunks_.find(coord);
+    if (!center) return std::nullopt;
+
+    ChunkMeshingSnapshot snapshot;
+    snapshot.center = *center;
+    if (const VoxelChunk* chunk = chunks_.find({coord.x - 1, coord.z})) snapshot.negativeX = *chunk;
+    if (const VoxelChunk* chunk = chunks_.find({coord.x + 1, coord.z})) snapshot.positiveX = *chunk;
+    if (const VoxelChunk* chunk = chunks_.find({coord.x, coord.z - 1})) snapshot.negativeZ = *chunk;
+    if (const VoxelChunk* chunk = chunks_.find({coord.x, coord.z + 1})) snapshot.positiveZ = *chunk;
+    return snapshot;
+}
+
 VoxelMesh FrontierWorld::buildChunkMesh(ChunkCoord coord) const {
-    const VoxelChunk* chunk = chunks_.find(coord);
-    if (!chunk) return {};
-    VoxelMesh local = GreedyMesher::build(*chunk);
+    const auto snapshot = chunkMeshingSnapshot(coord);
+    if (!snapshot) return {};
+    VoxelMesh local = GreedyMesher::build(*snapshot);
     VoxelMesh translated;
     translated.append(local, static_cast<float>(coord.x * VoxelChunk::sizeX), 0.0f,
                       static_cast<float>(coord.z * VoxelChunk::sizeZ));
@@ -154,12 +178,6 @@ VoxelMesh FrontierWorld::buildMesh() const {
     return result;
 }
 
-std::optional<VoxelChunk> FrontierWorld::chunkSnapshot(ChunkCoord coord) const {
-    const VoxelChunk* chunk = chunks_.find(coord);
-    if (!chunk) return std::nullopt;
-    return *chunk;
-}
-
 std::size_t FrontierWorld::solidBlockCount() const noexcept {
     std::size_t result = 0;
     for (const ChunkCoord coord : chunks_.loadedCoords()) {
@@ -167,12 +185,6 @@ std::size_t FrontierWorld::solidBlockCount() const noexcept {
         if (chunk) result += chunk->solidBlockCount();
     }
     return result;
-}
-
-std::vector<ChunkCoord> FrontierWorld::takeDirtyChunkCoords() {
-    const auto dirty = chunks_.dirtyCoords();
-    for (const ChunkCoord coord : dirty) chunks_.markReady(coord);
-    return dirty;
 }
 
 std::vector<ChunkCoord> FrontierWorld::takeUnloadedChunkCoords() {
