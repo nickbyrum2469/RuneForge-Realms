@@ -185,12 +185,14 @@ void HubPainter::drawFeatured() {
     text(wide(mode.title), {220, 290, 440, 52}, titleFormat_.Get(), color(0xf6f6f6));
     text(wide(mode.subtitle), {220, 342, 400, 28}, bodyFormat_.Get(), color(0xc5cbd3));
     text(wide(mode.description), {220, 380, 430, 88}, bodyFormat_.Get(), color(0xe0e3e7));
+    text(L"DEV PREVIEW - this build opens the Vulkan renderer lab, not the survival game yet.",
+         {220, 466, 445, 28}, smallFormat_.Get(), color(0xe1bb69));
     fillRect({690, 260, 520, 320}, color(0x101923, 0.54f), 8);
     blockCluster(725, 410, 440, 145, color(0x405641), static_cast<int>(model_.selectedModeIndex()) + 9);
     blockCluster(820, 330, 245, 130, color(0x646052), static_cast<int>(model_.selectedModeIndex()) + 23);
     fillRect(layout_.playButton, color(0xf0b742), 8);
     strokeRect(layout_.playButton, color(0xffe49a), 2.0f, 8);
-    text(L"PLAY", layout_.playButton, titleFormat_.Get(), color(0x2b1a06), DWRITE_TEXT_ALIGNMENT_CENTER);
+    text(L"ENTER VOXEL LAB", layout_.playButton, headingFormat_.Get(), color(0x2b1a06), DWRITE_TEXT_ALIGNMENT_CENTER);
 }
 
 void HubPainter::drawPartyPanel() {
@@ -231,10 +233,12 @@ void HubPainter::drawModeCards() {
 void HubPainter::drawNewsBar() {
     fillRect(layout_.newsBar, color(0x0b1219), 4);
     text(L"NEWS & UPDATES", {205, 868, 140, 26}, smallFormat_.Get(), color(0xb9c1cb));
-    text(L"NATIVE FOUNDATION", {365, 868, 150, 26}, smallFormat_.Get(), color(0x55a9ff));
-    text(L"RuneForge Realms 0.1.0 - native shell, release channel and automatic update bootstrapper online.",
-         {525, 868, 930, 26}, smallFormat_.Get(), color(0xaab3bf));
-    text(L"v0.1.0", {1480, 868, 85, 26}, smallFormat_.Get(), color(0x818b96), DWRITE_TEXT_ALIGNMENT_CENTER);
+    text(L"VULKAN FOUNDATION", {365, 868, 150, 26}, smallFormat_.Get(), color(0x55a9ff));
+    const std::wstring version = wide(RF_VERSION_STRING);
+    const std::wstring news = L"RuneForge Realms " + version +
+                              L" - Vulkan renderer preview and automatic runtime update channel online.";
+    text(news, {525, 868, 930, 26}, smallFormat_.Get(), color(0xaab3bf));
+    text(L"v" + version, {1480, 868, 85, 26}, smallFormat_.Get(), color(0x818b96), DWRITE_TEXT_ALIGNMENT_CENTER);
 }
 
 void HubPainter::draw() {

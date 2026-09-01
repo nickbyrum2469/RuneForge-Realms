@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(RuneForgeRealms VERSION 0.2.0 LANGUAGES C CXX)
+project(RuneForgeRealms VERSION 0.2.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,6 +12,7 @@ add_library(runeforge_core STATIC
     src/core/HubModel.cpp
 )
 target_include_directories(runeforge_core PUBLIC src)
+target_compile_definitions(runeforge_core PUBLIC RF_VERSION_STRING="${PROJECT_VERSION}")
 
 if(MSVC)
     target_compile_options(runeforge_core PRIVATE /W4 /permissive- /EHsc)

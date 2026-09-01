@@ -3,14 +3,57 @@
 #include "platform/windows/NativeWindow.h"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <windowsx.h>
 
 namespace rf::platform {
 namespace {
 constexpr wchar_t kWindowClass[] = L"RuneForgeRealmsNativeWindow";
-constexpr wchar_t kHubTitle[] = L"RuneForge Realms — Vulkan Foundation 0.2.0";
+
+std::wstring wide(std::string_view value) {
+    return std::wstring(value.begin(), value.end());
 }
+
+std::wstring hubTitle() {
+    return L"RuneForge Realms - Vulkan Foundation " + wide(RF_VERSION_STRING);
+}
+
+std::filesystem::path executableDirectory() {
+    std::wstring buffer(32768, L'\0');
+    const DWORD size = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    buffer.resize(size);
+    return std::filesystem::path(buffer).parent_path();
+}
+
+std::optional<std::string> readVersionFile(const std::filesystem::path& path) {
+    std::ifstream input(path);
+    std::string value;
+    std::getline(input, value);
+    if (value.empty()) return std::nullopt;
+    return value;
+}
+
+void showUpdateNoticeIfNeeded(HWND hwnd) {
+    const auto runtime = executableDirectory();
+    const auto previousVersion = readVersionFile(runtime.parent_path() / L"runtime.previous" / L"version.txt");
+    if (!previousVersion || *previousVersion == RF_VERSION_STRING) return;
+
+    const auto marker = runtime / (L".update-notice-" + wide(RF_VERSION_STRING) + L".ack");
+    if (std::filesystem::exists(marker)) return;
+
+    const std::wstring message = L"RuneForge Realms updated successfully from " + wide(*previousVersion) +
+                                 L" to " + wide(RF_VERSION_STRING) + L".\n\n"
+                                 L"The previous runtime was kept as runtime.previous for rollback.";
+    MessageBoxW(hwnd, message.c_str(), L"RuneForge Realms Updated", MB_OK | MB_ICONINFORMATION);
+
+    std::ofstream output(marker);
+    output << RF_VERSION_STRING << '\n';
+}
+} // namespace
 
 NativeWindow::NativeWindow() = default;
 NativeWindow::~NativeWindow() = default;
@@ -30,7 +73,8 @@ bool NativeWindow::create(HINSTANCE instance, int showCommand) {
 
     RECT desired{0, 0, 1600, 900};
     AdjustWindowRectEx(&desired, WS_OVERLAPPEDWINDOW, FALSE, 0);
-    hwnd_ = CreateWindowExW(0, kWindowClass, kHubTitle,
+    const std::wstring title = hubTitle();
+    hwnd_ = CreateWindowExW(0, kWindowClass, title.c_str(),
                             WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                             desired.right - desired.left, desired.bottom - desired.top,
                             nullptr, nullptr, instance_, this);
@@ -41,6 +85,7 @@ bool NativeWindow::create(HINSTANCE instance, int showCommand) {
 
     ShowWindow(hwnd_, showCommand);
     UpdateWindow(hwnd_);
+    showUpdateNoticeIfNeeded(hwnd_);
     return true;
 }
 
@@ -108,8 +153,6 @@ LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
                 } else if (renderer_) {
                     renderer_->onKeyDown(wParam);
                 }
-            } else if (wParam == VK_ESCAPE) {
-                PostMessageW(hwnd_, WM_CLOSE, 0, 0);
             }
             return 0;
 
@@ -127,7 +170,6 @@ LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
 void NativeWindow::enterVulkanScene() {
     if (mode_ == ViewMode::VulkanScene) return;
 
-    // Direct2D and Vulkan deliberately do not own the HWND at the same time.
     painter_.reset();
     renderer_ = std::make_unique<rf::render::VulkanRenderer>(hwnd_);
     if (!renderer_->initialize()) {
@@ -142,8 +184,8 @@ void NativeWindow::enterVulkanScene() {
 
     mode_ = ViewMode::VulkanScene;
     std::wstring gpu(renderer_->gpuName().begin(), renderer_->gpuName().end());
-    std::wstring title = L"RuneForge Realms 0.2.0 — Vulkan Voxel Lab — " + gpu +
-                         L" — Esc: Hub | Arrows: Orbit | W/S: Zoom | Space: Auto Orbit";
+    std::wstring title = L"RuneForge Realms " + wide(RF_VERSION_STRING) + L" - Vulkan Voxel Lab - " + gpu +
+                         L" - Esc: Hub | Arrows: Orbit | W/S: Zoom | Space: Auto Orbit";
     SetWindowTextW(hwnd_, title.c_str());
 }
 
@@ -163,7 +205,8 @@ void NativeWindow::returnToHub() {
     GetClientRect(hwnd_, &client);
     painter_->resize(static_cast<unsigned>(std::max<LONG>(client.right - client.left, 1)),
                      static_cast<unsigned>(std::max<LONG>(client.bottom - client.top, 1)));
-    SetWindowTextW(hwnd_, kHubTitle);
+    const std::wstring title = hubTitle();
+    SetWindowTextW(hwnd_, title.c_str());
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
@@ -174,7 +217,7 @@ void NativeWindow::handleAction(rf::ui::HubAction action) {
             enterVulkanScene();
             return;
         case rf::ui::HubAction::OpenModes:
-            message = L"Modes browser foundation selected. The first Vulkan voxel lab is now wired to the PLAY path.";
+            message = L"Modes browser foundation selected. The Vulkan voxel lab is currently wired to the PLAY path.";
             break;
         case rf::ui::HubAction::OpenParty:
             message = L"Party / co-op shell selected. Networking stays isolated until the local world simulation is stable.";
@@ -191,7 +234,10 @@ void NativeWindow::handleAction(rf::ui::HubAction action) {
         default:
             break;
     }
-    if (message) MessageBoxW(hwnd_, message, L"RuneForge Realms 0.2.0", MB_OK | MB_ICONINFORMATION);
+    if (message) {
+        const std::wstring caption = L"RuneForge Realms " + wide(RF_VERSION_STRING);
+        MessageBoxW(hwnd_, message, caption.c_str(), MB_OK | MB_ICONINFORMATION);
+    }
 }
 
 } // namespace rf::platform
