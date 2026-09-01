@@ -204,7 +204,9 @@ private:
 
     VkRenderPass renderPass_{VK_NULL_HANDLE};
     VkPipelineLayout pipelineLayout_{VK_NULL_HANDLE};
+    VkPipeline skyPipeline_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
+    VkPipeline hudPipeline_{VK_NULL_HANDLE};
 
     VkFormat depthFormat_{VK_FORMAT_UNDEFINED};
     VkImage depthImage_{VK_NULL_HANDLE};
