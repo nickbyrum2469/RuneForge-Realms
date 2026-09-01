@@ -104,6 +104,7 @@ bool VulkanRenderer::createSceneMesh() {
     indexCount_ = static_cast<std::uint32_t>(mesh.indices.size());
     sceneQuadCount_ = mesh.quadCount;
     sceneBlockCount_ = static_cast<std::uint32_t>(world_.solidBlockCount());
+    world_.markChunkMeshesReady();
     worldMeshDirty_ = false;
     return true;
 }

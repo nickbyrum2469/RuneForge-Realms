@@ -88,12 +88,6 @@ void PlayerController::update(float deltaSeconds, const world::FrontierWorld& wo
     if (velocity_.y <= 0.0f && position_.y == beforeY && collides(world, {position_.x, position_.y - 0.02f, position_.z})) {
         grounded_ = true;
     }
-
-    // Finite 0.3 terrain has an edge; keep the player in the playable test region for now.
-    position_.x = std::clamp(position_.x, static_cast<float>(world::FrontierWorld::worldMin) + 0.7f,
-                             static_cast<float>(world::FrontierWorld::worldMax) + 0.3f);
-    position_.z = std::clamp(position_.z, static_cast<float>(world::FrontierWorld::worldMin) + 0.7f,
-                             static_cast<float>(world::FrontierWorld::worldMax) + 0.3f);
 }
 
 } // namespace rf::game

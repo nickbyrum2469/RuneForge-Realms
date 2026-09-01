@@ -23,6 +23,7 @@ bool VulkanRenderer::initializeSession() {
             world_.generate(saved->seed);
             for (const auto& edit : saved->edits) world_.applyEdit(edit);
             player_.spawn(saved->playerPosition, saved->yaw, saved->pitch);
+            world_.updateStreaming(saved->playerPosition.x, saved->playerPosition.z);
             sessionReady_ = true;
             return true;
         }
@@ -117,6 +118,9 @@ void VulkanRenderer::saveNow() {
 void VulkanRenderer::updateGameplay(float deltaSeconds) {
     if (paused_) return;
     player_.update(deltaSeconds, world_);
+    const auto position = player_.position();
+    if (world_.updateStreaming(position.x, position.z)) worldMeshDirty_ = true;
+
     const auto now = std::chrono::steady_clock::now();
     if (now - lastSaveTime_ >= std::chrono::seconds(15)) saveNow();
 }
@@ -288,6 +292,7 @@ void VulkanRenderer::updateWindowTitle() {
     title += L" | XYZ " + std::to_wstring(static_cast<int>(std::floor(position.x))) + L", " +
              std::to_wstring(static_cast<int>(std::floor(position.y))) + L", " +
              std::to_wstring(static_cast<int>(std::floor(position.z)));
+    title += L" | Chunks " + std::to_wstring(world_.loadedChunkCount());
     title += L" | " + gpu;
     if (paused_) title += L" | Esc: Resume | H: Save + Main Menu";
     else title += L" | WASD Move | Mouse Look | LMB Break | RMB Place | 1-5 Blocks | Esc Pause";
