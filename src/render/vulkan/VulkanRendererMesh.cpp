@@ -2,6 +2,9 @@
 
 #include "render/vulkan/VulkanRenderer.h"
 
+#include "render/scene/ChunkCulling.h"
+
+#include <chrono>
 #include <cstring>
 #include <limits>
 
@@ -85,43 +88,160 @@ bool VulkanRenderer::uploadDeviceLocal(const void* data, VkDeviceSize size,
     return ok;
 }
 
-bool VulkanRenderer::createSceneMesh() {
-    const world::VoxelMesh mesh = world_.buildMesh();
-    if (mesh.vertices.empty() || mesh.indices.empty()) {
-        setError(L"Frontier world generation produced an empty render mesh.");
-        return false;
+void VulkanRenderer::destroyChunkMesh(GpuChunkMesh& mesh) {
+    destroyBuffer(mesh.indices);
+    destroyBuffer(mesh.vertices);
+    mesh = {};
+}
+
+bool VulkanRenderer::uploadChunkMesh(world::ChunkCoord coord, std::uint64_t revision,
+                                     const world::VoxelMesh& mesh, std::uint32_t solidBlockCount) {
+    if (mesh.empty()) {
+        if (auto existing = chunkMeshes_.find(coord); existing != chunkMeshes_.end()) {
+            destroyChunkMesh(existing->second);
+            chunkMeshes_.erase(existing);
+        }
+        refreshSceneCounters();
+        return true;
     }
 
+    GpuChunkMesh replacement;
     const VkDeviceSize vertexBytes = static_cast<VkDeviceSize>(mesh.vertices.size() * sizeof(world::MeshVertex));
     const VkDeviceSize indexBytes = static_cast<VkDeviceSize>(mesh.indices.size() * sizeof(std::uint32_t));
-    if (!uploadDeviceLocal(mesh.vertices.data(), vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer_) ||
-        !uploadDeviceLocal(mesh.indices.data(), indexBytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer_)) {
-        setError(L"RuneForge could not upload the Frontier world mesh to GPU memory.");
-        destroySceneMesh();
+    if (!uploadDeviceLocal(mesh.vertices.data(), vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, replacement.vertices) ||
+        !uploadDeviceLocal(mesh.indices.data(), indexBytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, replacement.indices)) {
+        destroyChunkMesh(replacement);
+        setError(L"RuneForge could not upload a streamed Frontier chunk mesh to GPU memory.");
         return false;
     }
 
-    indexCount_ = static_cast<std::uint32_t>(mesh.indices.size());
-    sceneQuadCount_ = mesh.quadCount;
-    sceneBlockCount_ = static_cast<std::uint32_t>(world_.solidBlockCount());
-    world_.markChunkMeshesReady();
-    worldMeshDirty_ = false;
+    replacement.indexCount = static_cast<std::uint32_t>(mesh.indices.size());
+    replacement.quadCount = mesh.quadCount;
+    replacement.solidBlockCount = solidBlockCount;
+    replacement.revision = revision;
+
+    auto existing = chunkMeshes_.find(coord);
+    if (existing != chunkMeshes_.end()) destroyChunkMesh(existing->second);
+    chunkMeshes_.insert_or_assign(coord, std::move(replacement));
+    refreshSceneCounters();
     return true;
 }
 
-bool VulkanRenderer::rebuildSceneMesh() {
-    if (device_ == VK_NULL_HANDLE) return false;
-    vkDeviceWaitIdle(device_);
-    destroySceneMesh();
-    return createSceneMesh();
+bool VulkanRenderer::createSceneMesh() {
+    for (const world::ChunkCoord coord : world_.loadedChunkCoords()) {
+        const auto snapshot = world_.chunkSnapshot(coord);
+        if (!snapshot) continue;
+        const world::VoxelMesh mesh = world_.buildChunkMesh(coord);
+        if (!uploadChunkMesh(coord, world_.chunkRevision(coord), mesh,
+                             static_cast<std::uint32_t>(snapshot->solidBlockCount()))) return false;
+    }
+    (void)world_.takeDirtyChunkCoords();
+    (void)world_.takeUnloadedChunkCoords();
+    if (chunkMeshes_.empty()) {
+        setError(L"Frontier world generation produced no renderable chunk meshes.");
+        return false;
+    }
+    return true;
+}
+
+bool VulkanRenderer::meshJobPending(world::ChunkCoord coord, std::uint64_t revision) const noexcept {
+    for (const auto& pending : pendingChunkMeshes_) {
+        if (pending.coord == coord && pending.revision == revision) return true;
+    }
+    return false;
+}
+
+void VulkanRenderer::queueDirtyChunkMeshes() {
+    for (const world::ChunkCoord coord : world_.takeDirtyChunkCoords()) {
+        const std::uint64_t revision = world_.chunkRevision(coord);
+        if (revision == 0 || meshJobPending(coord, revision)) continue;
+        const auto existing = chunkMeshes_.find(coord);
+        if (existing != chunkMeshes_.end() && existing->second.revision == revision) continue;
+        const auto snapshot = world_.chunkSnapshot(coord);
+        if (!snapshot) continue;
+
+        pendingChunkMeshes_.push_back(PendingChunkMesh{
+            coord,
+            revision,
+            meshJobs_.submitResult([snapshot = *snapshot, coord]() mutable {
+                world::VoxelMesh local = world::GreedyMesher::build(snapshot);
+                world::VoxelMesh translated;
+                translated.append(local, static_cast<float>(coord.x * world::VoxelChunk::sizeX), 0.0f,
+                                  static_cast<float>(coord.z * world::VoxelChunk::sizeZ));
+                return translated;
+            }),
+        });
+    }
+}
+
+void VulkanRenderer::pumpChunkMeshJobs() {
+    using namespace std::chrono_literals;
+    constexpr int uploadBudgetPerFrame = 2;
+    int uploaded = 0;
+    for (auto it = pendingChunkMeshes_.begin(); it != pendingChunkMeshes_.end() && uploaded < uploadBudgetPerFrame;) {
+        if (it->future.wait_for(0ms) != std::future_status::ready) {
+            ++it;
+            continue;
+        }
+
+        const world::ChunkCoord coord = it->coord;
+        const std::uint64_t revision = it->revision;
+        world::VoxelMesh mesh = it->future.get();
+        it = pendingChunkMeshes_.erase(it);
+        if (world_.chunkRevision(coord) != revision) continue;
+        const auto snapshot = world_.chunkSnapshot(coord);
+        if (!snapshot) continue;
+        if (!uploadChunkMesh(coord, revision, mesh, static_cast<std::uint32_t>(snapshot->solidBlockCount()))) return;
+        ++uploaded;
+    }
+}
+
+void VulkanRenderer::removeUnloadedChunkMeshes() {
+    for (const world::ChunkCoord coord : world_.takeUnloadedChunkCoords()) {
+        const auto existing = chunkMeshes_.find(coord);
+        if (existing == chunkMeshes_.end()) continue;
+        destroyChunkMesh(existing->second);
+        chunkMeshes_.erase(existing);
+    }
+    refreshSceneCounters();
+}
+
+void VulkanRenderer::drawSceneMeshes(VkCommandBuffer commandBuffer) {
+    const scene::ChunkCullInput cull{
+        player_.eyePosition(),
+        player_.lookDirection(),
+        static_cast<float>((world::FrontierWorld::streamingPrefetchRadius + 1) * world::VoxelChunk::sizeX),
+    };
+    visibleChunkCount_ = 0;
+    for (auto& [coord, mesh] : chunkMeshes_) {
+        if (mesh.indexCount == 0 || !scene::ChunkCulling::visible(coord, cull)) continue;
+        const VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, &mesh.vertices.buffer, &offset);
+        vkCmdBindIndexBuffer(commandBuffer, mesh.indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(commandBuffer, mesh.indexCount, 1, 0, 0, 0);
+        ++visibleChunkCount_;
+    }
+}
+
+void VulkanRenderer::refreshSceneCounters() {
+    sceneQuadCount_ = 0;
+    sceneBlockCount_ = 0;
+    for (const auto& [coord, mesh] : chunkMeshes_) {
+        (void)coord;
+        sceneQuadCount_ += mesh.quadCount;
+        sceneBlockCount_ += mesh.solidBlockCount;
+    }
 }
 
 void VulkanRenderer::destroySceneMesh() {
-    destroyBuffer(indexBuffer_);
-    destroyBuffer(vertexBuffer_);
-    indexCount_ = 0;
+    for (auto& [coord, mesh] : chunkMeshes_) {
+        (void)coord;
+        destroyChunkMesh(mesh);
+    }
+    chunkMeshes_.clear();
     sceneQuadCount_ = 0;
     sceneBlockCount_ = 0;
+    visibleChunkCount_ = 0;
 }
 
 } // namespace rf::render
