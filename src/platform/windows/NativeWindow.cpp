@@ -123,6 +123,7 @@ LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
             const unsigned width = LOWORD(lParam);
             const unsigned height = HIWORD(lParam);
             if (painter_) painter_->resize(width, height);
+            if (inventoryPainter_) inventoryPainter_->resize(width, height);
             if (renderer_) renderer_->resize(width, height);
             InvalidateRect(hwnd_, nullptr, FALSE);
             return 0;
@@ -132,6 +133,7 @@ LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
             PAINTSTRUCT ps{};
             BeginPaint(hwnd_, &ps);
             if (mode_ == ViewMode::Hub && painter_) painter_->draw();
+            else if (mode_ == ViewMode::Inventory && inventoryPainter_) inventoryPainter_->draw();
             EndPaint(hwnd_, &ps);
             return 0;
         }
@@ -164,8 +166,15 @@ LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
             return 0;
 
         case WM_KEYDOWN:
+            if (mode_ == ViewMode::Inventory) {
+                if ((wParam == 'E' || wParam == VK_ESCAPE) && (lParam & (1u << 30)) == 0) closeInventory();
+                return 0;
+            }
+
             if (mode_ == ViewMode::Frontier && renderer_) {
-                if (wParam == VK_ESCAPE && (lParam & (1u << 30)) == 0) {
+                if (wParam == 'E' && (lParam & (1u << 30)) == 0 && !renderer_->paused()) {
+                    openInventory();
+                } else if (wParam == VK_ESCAPE && (lParam & (1u << 30)) == 0) {
                     const bool pause = !renderer_->paused();
                     renderer_->setPaused(pause);
                     if (pause) releaseMouse(); else captureMouse();
@@ -193,10 +202,15 @@ LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
                 SetCursor(LoadCursor(nullptr, IDC_CROSS));
                 return TRUE;
             }
+            if (mode_ == ViewMode::Inventory) {
+                SetCursor(LoadCursor(nullptr, IDC_ARROW));
+                return TRUE;
+            }
             break;
 
         case WM_DESTROY:
             releaseMouse();
+            inventoryPainter_.reset();
             renderer_.reset();
             painter_.reset();
             PostQuitMessage(0);
@@ -242,6 +256,7 @@ void NativeWindow::releaseMouse() {
 void NativeWindow::enterFrontier(bool continueExisting) {
     if (mode_ == ViewMode::Frontier) return;
     painter_.reset();
+    inventoryPainter_.reset();
     renderer_ = std::make_unique<rf::render::VulkanRenderer>(hwnd_, frontierSavePath(), continueExisting);
     if (!renderer_->initialize()) {
         const std::wstring error = renderer_->lastError().empty() ? L"Frontier Realms could not initialize." : renderer_->lastError();
@@ -254,7 +269,40 @@ void NativeWindow::enterFrontier(bool continueExisting) {
     captureMouse();
 }
 
+void NativeWindow::openInventory() {
+    if (mode_ != ViewMode::Frontier || !renderer_) return;
+    renderer_->setPaused(true);
+    releaseMouse();
+
+    inventoryPainter_ = std::make_unique<rf::ui::inventory::InventoryPainter>(hwnd_);
+    if (!inventoryPainter_->initialize()) {
+        inventoryPainter_.reset();
+        renderer_->setPaused(false);
+        captureMouse();
+        MessageBoxW(hwnd_, L"RuneForge could not open the native inventory screen.", L"RuneForge Inventory", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    RECT client{};
+    GetClientRect(hwnd_, &client);
+    inventoryPainter_->resize(static_cast<unsigned>(std::max<LONG>(client.right - client.left, 1)),
+                              static_cast<unsigned>(std::max<LONG>(client.bottom - client.top, 1)));
+    mode_ = ViewMode::Inventory;
+    SetWindowTextW(hwnd_, (L"RuneForge Realms " + wide(RF_VERSION_STRING) + L" - Inventory").c_str());
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void NativeWindow::closeInventory() {
+    if (mode_ != ViewMode::Inventory || !renderer_) return;
+    inventoryPainter_.reset();
+    mode_ = ViewMode::Frontier;
+    renderer_->setPaused(false);
+    captureMouse();
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
 void NativeWindow::returnToHub() {
+    inventoryPainter_.reset();
     if (renderer_) renderer_->saveNow();
     renderer_.reset();
     releaseMouse();
@@ -293,7 +341,7 @@ void NativeWindow::handleAction(rf::ui::HubAction action) {
                         L"RuneForge Worlds", MB_OK | MB_ICONINFORMATION);
             return;
         case rf::ui::HubAction::OpenSettings:
-            MessageBoxW(hwnd_, L"Graphics, input and accessibility settings are the next native UI pass.\n\nCurrent Frontier controls: WASD, mouse, Space, Shift, Ctrl, LMB/RMB, 1-5, F5, Esc.",
+            MessageBoxW(hwnd_, L"Graphics, input and accessibility settings are being built into the native UI.\n\nFrontier controls: WASD, mouse, Space, Shift, Ctrl, E inventory, LMB/RMB, 1-5, F5, Esc.",
                         L"RuneForge Settings", MB_OK | MB_ICONINFORMATION);
             return;
         case rf::ui::HubAction::Quit:
