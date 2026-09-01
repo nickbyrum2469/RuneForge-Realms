@@ -2,6 +2,9 @@
 
 #ifdef _WIN32
 
+#include "game/PlayerController.h"
+#include "world/FrontierWorld.h"
+
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -17,7 +20,7 @@ namespace rf::render {
 
 class VulkanRenderer {
 public:
-    explicit VulkanRenderer(HWND hwnd);
+    VulkanRenderer(HWND hwnd, std::filesystem::path savePath, bool continueExisting);
     ~VulkanRenderer();
 
     VulkanRenderer(const VulkanRenderer&) = delete;
@@ -28,10 +31,19 @@ public:
     void drawFrame();
     void resize(unsigned width, unsigned height);
     void onKeyDown(WPARAM key);
+    void onKeyUp(WPARAM key);
+    void onMouseDelta(float dx, float dy);
+    void onMouseButton(bool primary);
+    void setPaused(bool paused) noexcept;
+    void saveNow();
 
     [[nodiscard]] bool initialized() const noexcept { return initialized_; }
+    [[nodiscard]] bool paused() const noexcept { return paused_; }
     [[nodiscard]] const std::wstring& lastError() const noexcept { return lastError_; }
     [[nodiscard]] const std::string& gpuName() const noexcept { return gpuName_; }
+    [[nodiscard]] std::uint32_t sceneQuadCount() const noexcept { return sceneQuadCount_; }
+    [[nodiscard]] std::uint32_t sceneBlockCount() const noexcept { return sceneBlockCount_; }
+    [[nodiscard]] world::BlockId selectedBlock() const noexcept { return selectedBlock_; }
 
 private:
     struct QueueFamilies {
@@ -53,22 +65,30 @@ private:
         VkCommandBuffer commandBuffer{VK_NULL_HANDLE};
     };
 
+    struct BufferResource {
+        VkBuffer buffer{VK_NULL_HANDLE};
+        VkDeviceMemory memory{VK_NULL_HANDLE};
+        VkDeviceSize size{};
+    };
+
     struct PushData {
         float time{};
         float aspect{16.0f / 9.0f};
-        float yaw{-0.65f};
-        float pitch{0.30f};
-        float distance{12.5f};
+        float eyeX{};
+        float eyeY{};
+        float eyeZ{};
+        float yaw{};
+        float pitch{};
+        float viewportWidth{1600.0f};
+        float viewportHeight{900.0f};
+        float selectedMaterial{};
         float pad0{};
         float pad1{};
-        float pad2{};
     };
 
-    // One frame in flight intentionally protects the single shared depth image in this first
-    // renderer proof. The next renderer-memory pass will move depth/transient attachments per frame.
     static constexpr std::size_t kFramesInFlight = 1;
-    static constexpr std::uint32_t kSceneInstanceCount = 110;
 
+    bool initializeSession();
     bool createInstance();
     bool createSurface();
     bool pickPhysicalDevice();
@@ -81,10 +101,18 @@ private:
     bool createFramebuffers();
     bool createCommandResources();
     bool createSyncObjects();
+    bool createSceneMesh();
+    bool rebuildSceneMesh();
 
     void destroySwapchainResources();
+    void destroySceneMesh();
     bool recreateSwapchain();
     void recordCommandBuffer(VkCommandBuffer commandBuffer, std::uint32_t imageIndex);
+    void updateGameplay(float deltaSeconds);
+    void updatePushData(float elapsedSeconds);
+    void updateWindowTitle();
+    void breakTargetBlock();
+    void placeTargetBlock();
 
     QueueFamilies findQueueFamilies(VkPhysicalDevice device) const;
     SwapchainSupport querySwapchainSupport(VkPhysicalDevice device) const;
@@ -97,6 +125,13 @@ private:
     VkFormat chooseDepthFormat() const;
     std::uint32_t findMemoryType(std::uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
 
+    bool createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
+                      BufferResource& output);
+    bool uploadDeviceLocal(const void* data, VkDeviceSize size, VkBufferUsageFlags finalUsage,
+                           BufferResource& output);
+    bool copyBuffer(VkBuffer source, VkBuffer destination, VkDeviceSize size);
+    void destroyBuffer(BufferResource& resource);
+
     std::vector<std::uint32_t> readSpirv(const std::filesystem::path& path) const;
     std::filesystem::path executableDirectory() const;
     std::filesystem::path shaderPath(const wchar_t* filename) const;
@@ -106,12 +141,21 @@ private:
     void setError(const wchar_t* prefix, VkResult result);
 
     HWND hwnd_{};
+    std::filesystem::path savePath_;
+    bool continueExisting_{false};
     bool initialized_{false};
+    bool sessionReady_{false};
+    bool paused_{false};
     bool framebufferResized_{false};
+    bool worldMeshDirty_{false};
     unsigned requestedWidth_{1600};
     unsigned requestedHeight_{900};
     std::wstring lastError_;
     std::string gpuName_;
+
+    world::FrontierWorld world_;
+    game::PlayerController player_;
+    world::BlockId selectedBlock_{world::BlockId::Dirt};
 
     VkInstance instance_{VK_NULL_HANDLE};
     VkSurfaceKHR surface_{VK_NULL_HANDLE};
@@ -142,9 +186,17 @@ private:
     std::array<FrameSync, kFramesInFlight> frames_{};
     std::size_t currentFrame_{0};
 
+    BufferResource vertexBuffer_{};
+    BufferResource indexBuffer_{};
+    std::uint32_t indexCount_{0};
+    std::uint32_t sceneQuadCount_{0};
+    std::uint32_t sceneBlockCount_{0};
+
     std::chrono::steady_clock::time_point startTime_{};
+    std::chrono::steady_clock::time_point lastFrameTime_{};
+    std::chrono::steady_clock::time_point lastSaveTime_{};
+    std::chrono::steady_clock::time_point lastTitleTime_{};
     PushData pushData_{};
-    bool autoOrbit_{true};
 };
 
 } // namespace rf::render
