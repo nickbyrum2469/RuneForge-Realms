@@ -26,6 +26,16 @@ std::optional<rf::Version> installedVersion(const std::filesystem::path& root) {
     return input || !text.empty() ? rf::Version::parse(text) : std::nullopt;
 }
 
+std::optional<std::string> asciiTag(const std::wstring& value) {
+    std::string out;
+    out.reserve(value.size());
+    for (const wchar_t ch : value) {
+        if (ch < 0 || ch > 0x7f) return std::nullopt;
+        out.push_back(static_cast<char>(ch));
+    }
+    return out;
+}
+
 void showError(const wchar_t* message) {
     MessageBoxW(nullptr, message, L"RuneForge Realms Updater", MB_OK | MB_ICONWARNING);
 }
@@ -39,7 +49,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
     // Update failures never block a known-good installed runtime.
     if (const auto release = client.latest()) {
-        const auto remote = rf::Version::parse(std::string(release->tag.begin(), release->tag.end()));
+        const auto tag = asciiTag(release->tag);
+        const auto remote = tag ? rf::Version::parse(*tag) : std::nullopt;
         const auto local = installedVersion(root).value_or(rf::Version{});
         if (remote && *remote > local) {
             const auto archive = root / L"RuneForgeRealms.update.zip";
