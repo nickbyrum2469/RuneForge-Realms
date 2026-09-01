@@ -2,10 +2,12 @@
 
 #include "updater/ReleaseClient.h"
 
+#include <windows.h>
+#include <winhttp.h>
+
 #include <fstream>
 #include <string_view>
 #include <vector>
-#include <winhttp.h>
 
 namespace rf::updater {
 namespace {
