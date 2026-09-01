@@ -1,7 +1,7 @@
 #pragma once
 
 #include "game/Math.h"
-#include "world/FrontierWorld.h"
+#include "world/WorldEdit.h"
 
 #include <cstdint>
 #include <filesystem>
