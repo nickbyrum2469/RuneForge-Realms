@@ -14,12 +14,16 @@ enum class BlockId : std::uint8_t {
     Leaves,
 };
 
+// Surface materials are deliberately more granular than block IDs. A single block may
+// expose different materials on different faces (grass turf vs rooted soil, bark vs end grain).
 enum class SurfaceMaterial : std::uint32_t {
-    Grass = 0,
-    Dirt = 1,
-    Stone = 2,
-    Wood = 3,
-    Leaves = 4,
+    GrassTop = 0,
+    GrassSide,
+    Dirt,
+    Stone,
+    WoodBark,
+    WoodCut,
+    Leaves,
 };
 
 [[nodiscard]] constexpr bool isSolid(BlockId block) noexcept {
@@ -41,12 +45,18 @@ enum class SurfaceMaterial : std::uint32_t {
 [[nodiscard]] inline SurfaceMaterial surfaceMaterial(BlockId block, int axis, int normalSign) noexcept {
     switch (block) {
         case BlockId::Grass:
-            return axis == 1 && normalSign > 0 ? SurfaceMaterial::Grass : SurfaceMaterial::Dirt;
-        case BlockId::Dirt: return SurfaceMaterial::Dirt;
-        case BlockId::Stone: return SurfaceMaterial::Stone;
-        case BlockId::Wood: return SurfaceMaterial::Wood;
-        case BlockId::Leaves: return SurfaceMaterial::Leaves;
-        case BlockId::Air: break;
+            if (axis == 1 && normalSign > 0) return SurfaceMaterial::GrassTop;
+            return SurfaceMaterial::GrassSide;
+        case BlockId::Dirt:
+            return SurfaceMaterial::Dirt;
+        case BlockId::Stone:
+            return SurfaceMaterial::Stone;
+        case BlockId::Wood:
+            return axis == 1 ? SurfaceMaterial::WoodCut : SurfaceMaterial::WoodBark;
+        case BlockId::Leaves:
+            return SurfaceMaterial::Leaves;
+        case BlockId::Air:
+            break;
     }
     return SurfaceMaterial::Dirt;
 }
