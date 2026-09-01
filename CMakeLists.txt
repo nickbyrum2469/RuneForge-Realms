@@ -206,6 +206,7 @@ if(RF_BUILD_TESTS)
         tests/TestWorld.cpp
         tests/TestMicroMining.cpp
         tests/TestInventoryGrowth.cpp
+        tests/TestDrops.cpp
     )
     target_link_libraries(runeforge_core_tests PRIVATE runeforge_core)
     add_test(NAME runeforge_core_tests COMMAND runeforge_core_tests)
