@@ -11,8 +11,8 @@ void FrontierWorld::generate(std::uint32_t seed) {
     chunks_.clear();
     edits_.clear();
     streamCenter_ = {0, 0};
-    chunks_.update(streamCenter_, initialChunkRadius, initialChunkRadius + 1,
-                   [this](ChunkCoord coord) { return generateChunk(coord); });
+    (void)chunks_.update(streamCenter_, initialChunkRadius, initialChunkRadius + 1,
+                         [this](ChunkCoord coord) { return generateChunk(coord); });
 }
 
 bool FrontierWorld::updateStreaming(float worldX, float worldZ) {
