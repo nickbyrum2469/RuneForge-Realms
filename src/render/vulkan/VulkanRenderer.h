@@ -8,6 +8,7 @@
 #include "game/inventory/Inventory.h"
 #include "game/mining/MiningSystem.h"
 #include "world/FrontierWorld.h"
+#include "world/meshing/MicroDetailBuilder.h"
 
 #include <array>
 #include <chrono>
@@ -87,11 +88,13 @@ private:
         std::uint32_t quadCount{};
         std::uint32_t solidBlockCount{};
         std::uint64_t revision{};
+        world::meshing::SurfaceDetailTier detailTier{world::meshing::SurfaceDetailTier::Distant};
     };
 
     struct PendingChunkMesh {
         world::ChunkCoord coord{};
         std::uint64_t revision{};
+        world::meshing::SurfaceDetailTier detailTier{world::meshing::SurfaceDetailTier::Distant};
         std::future<world::VoxelMesh> future;
     };
 
@@ -108,12 +111,18 @@ private:
         float selectedMaterial{};
         float miningMode{};
         float miningProgress{};
+        float targetBlockX{};
+        float targetBlockY{};
+        float targetBlockZ{};
+        float targetActive{};
     };
 
     static constexpr std::size_t kFramesInFlight = 1;
     static constexpr int kStartupGpuRadius = 1;
     static constexpr int kMeshScheduleBudgetPerFrame = 12;
     static constexpr std::size_t kMaxPendingChunkMeshes = 64;
+    static constexpr int kHeroDetailRadius = 2;
+    static constexpr int kStandardDetailRadius = 4;
 
     bool initializeSession();
     bool createInstance();
@@ -147,8 +156,11 @@ private:
     void removeUnloadedChunkMeshes();
     void drawSceneMeshes(VkCommandBuffer commandBuffer);
     void refreshSceneCounters();
-    [[nodiscard]] bool meshJobPending(world::ChunkCoord coord, std::uint64_t revision) const noexcept;
+    [[nodiscard]] bool meshJobPending(world::ChunkCoord coord, std::uint64_t revision,
+                                      world::meshing::SurfaceDetailTier detailTier) const noexcept;
+    [[nodiscard]] world::meshing::SurfaceDetailTier surfaceDetailTierFor(world::ChunkCoord coord) const noexcept;
     bool uploadChunkMesh(world::ChunkCoord coord, std::uint64_t revision,
+                         world::meshing::SurfaceDetailTier detailTier,
                          const world::VoxelMesh& mesh, std::uint32_t solidBlockCount);
     void destroyChunkMesh(GpuChunkMesh& mesh);
 
