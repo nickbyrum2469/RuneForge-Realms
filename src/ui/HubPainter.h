@@ -13,6 +13,9 @@
 
 namespace rf::ui {
 
+template <typename T>
+using ComPtr = Microsoft::WRL::ComPtr<T>;
+
 enum class HubAction { None, Play, OpenModes, OpenParty, OpenLocker, OpenShop, OpenSettings };
 
 class HubPainter {
@@ -26,8 +29,6 @@ public:
     HubAction click(float pixelX, float pixelY);
 
 private:
-    using Microsoft::WRL::ComPtr;
-
     void createDeviceResources();
     void discardDeviceResources();
     void createTextResources();
