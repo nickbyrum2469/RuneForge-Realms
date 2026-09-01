@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(RuneForgeRealms VERSION 0.3.2 LANGUAGES C CXX)
+project(RuneForgeRealms VERSION 0.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -91,28 +91,36 @@ if(WIN32)
     set(RF_SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
     set(RF_VERTEX_SPV "${RF_SHADER_OUTPUT_DIR}/voxel_scene.vert.spv")
     set(RF_FRAGMENT_SPV "${RF_SHADER_OUTPUT_DIR}/voxel_scene.frag.spv")
+    set(RF_FULLSCREEN_VERTEX_SPV "${RF_SHADER_OUTPUT_DIR}/fullscreen.vert.spv")
+    set(RF_SKY_FRAGMENT_SPV "${RF_SHADER_OUTPUT_DIR}/sky.frag.spv")
+    set(RF_HUD_FRAGMENT_SPV "${RF_SHADER_OUTPUT_DIR}/hud.frag.spv")
 
-    add_custom_command(
-        OUTPUT "${RF_VERTEX_SPV}"
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${RF_SHADER_OUTPUT_DIR}"
-        COMMAND "${RF_DXC_EXECUTABLE}" -spirv -T vs_6_6 -E VSMain
-                -fspv-target-env=vulkan1.3 -fvk-use-dx-layout
-                -Fo "${RF_VERTEX_SPV}" "${RF_SHADER_SOURCE}"
-        DEPENDS "${RF_SHADER_SOURCE}"
-        VERBATIM
-        COMMENT "Compiling RuneForge Vulkan vertex shader"
+    function(rf_compile_shader output profile entry description)
+        add_custom_command(
+            OUTPUT "${output}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${RF_SHADER_OUTPUT_DIR}"
+            COMMAND "${RF_DXC_EXECUTABLE}" -spirv -T ${profile} -E ${entry}
+                    -fspv-target-env=vulkan1.3 -fvk-use-dx-layout
+                    -Fo "${output}" "${RF_SHADER_SOURCE}"
+            DEPENDS "${RF_SHADER_SOURCE}"
+            VERBATIM
+            COMMENT "${description}"
+        )
+    endfunction()
+
+    rf_compile_shader("${RF_VERTEX_SPV}" vs_6_6 VSMain "Compiling RuneForge voxel vertex shader")
+    rf_compile_shader("${RF_FRAGMENT_SPV}" ps_6_6 PSMain "Compiling RuneForge hero material shader")
+    rf_compile_shader("${RF_FULLSCREEN_VERTEX_SPV}" vs_6_6 VSFullscreen "Compiling RuneForge fullscreen vertex shader")
+    rf_compile_shader("${RF_SKY_FRAGMENT_SPV}" ps_6_6 PSSky "Compiling RuneForge procedural sky shader")
+    rf_compile_shader("${RF_HUD_FRAGMENT_SPV}" ps_6_6 PSHud "Compiling RuneForge survival HUD shader")
+
+    add_custom_target(runeforge_shaders DEPENDS
+        "${RF_VERTEX_SPV}"
+        "${RF_FRAGMENT_SPV}"
+        "${RF_FULLSCREEN_VERTEX_SPV}"
+        "${RF_SKY_FRAGMENT_SPV}"
+        "${RF_HUD_FRAGMENT_SPV}"
     )
-    add_custom_command(
-        OUTPUT "${RF_FRAGMENT_SPV}"
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${RF_SHADER_OUTPUT_DIR}"
-        COMMAND "${RF_DXC_EXECUTABLE}" -spirv -T ps_6_6 -E PSMain
-                -fspv-target-env=vulkan1.3 -fvk-use-dx-layout
-                -Fo "${RF_FRAGMENT_SPV}" "${RF_SHADER_SOURCE}"
-        DEPENDS "${RF_SHADER_SOURCE}"
-        VERBATIM
-        COMMENT "Compiling RuneForge Vulkan fragment shader"
-    )
-    add_custom_target(runeforge_shaders DEPENDS "${RF_VERTEX_SPV}" "${RF_FRAGMENT_SPV}")
 
     add_executable(RuneForgeRealms WIN32
         src/app/App.cpp
@@ -125,6 +133,8 @@ if(WIN32)
         src/render/vulkan/VulkanRendererMesh.cpp
         src/ui/HubLayout.cpp
         src/ui/HubPainter.cpp
+        src/ui/inventory/InventoryLayout.cpp
+        src/ui/inventory/InventoryPainter.cpp
     )
     add_dependencies(RuneForgeRealms runeforge_shaders)
     target_include_directories(RuneForgeRealms PRIVATE src)
@@ -143,6 +153,12 @@ if(WIN32)
                 "$<TARGET_FILE_DIR:RuneForgeRealms>/shaders/voxel_scene.vert.spv"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RF_FRAGMENT_SPV}"
                 "$<TARGET_FILE_DIR:RuneForgeRealms>/shaders/voxel_scene.frag.spv"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RF_FULLSCREEN_VERTEX_SPV}"
+                "$<TARGET_FILE_DIR:RuneForgeRealms>/shaders/fullscreen.vert.spv"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RF_SKY_FRAGMENT_SPV}"
+                "$<TARGET_FILE_DIR:RuneForgeRealms>/shaders/sky.frag.spv"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RF_HUD_FRAGMENT_SPV}"
+                "$<TARGET_FILE_DIR:RuneForgeRealms>/shaders/hud.frag.spv"
         VERBATIM
     )
 
@@ -158,7 +174,14 @@ if(WIN32)
     install(TARGETS RuneForgeBootstrap RUNTIME DESTINATION .)
     install(TARGETS RuneForgeRealms RUNTIME DESTINATION runtime)
     install(FILES VERSION DESTINATION runtime RENAME version.txt)
-    install(FILES "${RF_VERTEX_SPV}" "${RF_FRAGMENT_SPV}" DESTINATION runtime/shaders)
+    install(FILES
+        "${RF_VERTEX_SPV}"
+        "${RF_FRAGMENT_SPV}"
+        "${RF_FULLSCREEN_VERTEX_SPV}"
+        "${RF_SKY_FRAGMENT_SPV}"
+        "${RF_HUD_FRAGMENT_SPV}"
+        DESTINATION runtime/shaders
+    )
 endif()
 
 if(RF_BUILD_TESTS)
