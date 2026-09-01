@@ -1,6 +1,7 @@
 #include "world/growth/GrassGrowth.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace rf::world::growth {
 namespace {
@@ -31,19 +32,25 @@ GrowthNode GrassGrowth::sample(std::uint32_t worldSeed, BlockCoord block,
     if (nodeX < 0 || nodeZ < 0 || nodeX >= nodeResolution || nodeZ >= nodeResolution) return node;
 
     const std::uint32_t h = hashNode(worldSeed, block, nodeX, nodeZ);
-    const float density = unit(h);
-    node.present = density > 0.36f;
+    // Reference grass is patchy, not a full 8x8 carpet. About 27% of eligible nodes exist before LOD.
+    node.present = unit(h) > 0.73f;
     if (!node.present) return node;
 
-    const float initialOffset = unit(h >> 8) * growthStepSeconds * 2.4f;
-    const float effectiveAge = std::max(0.0f, worldAgeSeconds + initialOffset);
-    const int stage = std::clamp(static_cast<int>(effectiveAge / growthStepSeconds), 0, 4);
+    // Quantize simulation time before sampling. A mining remesh between vegetation ticks therefore
+    // produces the exact same grass state and can never make a plant grow just because the user clicked.
+    const float tickAge = std::floor(std::max(worldAgeSeconds, 0.0f) / growthStepSeconds) * growthStepSeconds;
+    const float initialAge = unit(h >> 7) * 76.0f;
+    const float nodeStep = 18.0f + unit(h >> 13) * 30.0f;
+    const int maxStage = 1 + static_cast<int>((h >> 19) % 4u);
+    const int stage = std::clamp(static_cast<int>((tickAge + initialAge) / nodeStep), 0, maxStage);
     node.stage = static_cast<std::uint8_t>(stage);
-    node.height = 0.035f + static_cast<float>(stage) * 0.035f + unit(h >> 16) * 0.025f;
-    node.width = 0.050f + unit(h >> 21) * 0.045f;
+    if (stage == 0) return node;
 
-    if (stage >= 3) {
-        const std::uint32_t flowerRoll = (h >> 5) % 23u;
+    node.height = 0.025f + static_cast<float>(stage) * 0.026f + unit(h >> 16) * 0.020f;
+    node.width = 0.014f + unit(h >> 21) * 0.016f;
+
+    if (stage >= 3 && maxStage >= 3) {
+        const std::uint32_t flowerRoll = (h >> 4) % 71u;
         if (flowerRoll == 0u) node.flower = FlowerType::White;
         else if (flowerRoll == 1u) node.flower = FlowerType::Yellow;
         else if (flowerRoll == 2u && stage >= 4) node.flower = FlowerType::Blue;
