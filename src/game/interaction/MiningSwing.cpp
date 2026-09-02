@@ -82,16 +82,6 @@ bool MiningSwing::begin(const world::RaycastHit& target,
     return true;
 }
 
-bool MiningSwing::begin(const world::RaycastHit& target,
-                        Vec3 eye,
-                        Vec3 forward,
-                        Vec3 right,
-                        Vec3 up,
-                        float durationSeconds) noexcept {
-    const Vec3 feet{eye.x, eye.y - 1.62f, eye.z};
-    return begin(target, feet, false, eye, forward, right, up, durationSeconds);
-}
-
 Vec3 MiningSwing::calculateDesiredHand(float t,
                                        Vec3 feet,
                                        bool crouching,
@@ -169,7 +159,8 @@ std::optional<SwingContact> MiningSwing::update(float deltaSeconds,
         const float segmentLength = std::sqrt(lengthSquared(segment));
         if (segmentLength > 0.0005f) {
             const Vec3 direction = segment * (1.0f / segmentLength);
-            const Vec3 bodyRight = normalized({bodyForwardFromAim(forward).z, 0.0f, -bodyForwardFromAim(forward).x});
+            const Vec3 bodyForward = bodyForwardFromAim(forward);
+            const Vec3 bodyRight = normalized({bodyForward.z, 0.0f, -bodyForward.x});
             constexpr Vec3 worldUp{0.0f, 1.0f, 0.0f};
             const std::array<Vec3, 7> offsets{{
                 {},
@@ -200,16 +191,6 @@ std::optional<SwingContact> MiningSwing::update(float deltaSeconds,
         pose_.active = false;
     }
     return contact;
-}
-
-std::optional<SwingContact> MiningSwing::update(float deltaSeconds,
-                                                const world::FrontierWorld& world,
-                                                Vec3 eye,
-                                                Vec3 forward,
-                                                Vec3 right,
-                                                Vec3 up) noexcept {
-    const Vec3 feet{eye.x, eye.y - 1.62f, eye.z};
-    return update(deltaSeconds, world, feet, false, eye, forward, right, up);
 }
 
 } // namespace rf::game::interaction

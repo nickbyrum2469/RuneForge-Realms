@@ -38,24 +38,10 @@ public:
                              Vec3 right,
                              Vec3 up,
                              float durationSeconds) noexcept;
-    // Compatibility entry point for callers that do not yet supply root/crouch state.
-    // New gameplay code should use the explicit body-root overload above.
-    [[nodiscard]] bool begin(const world::RaycastHit& target,
-                             Vec3 eye,
-                             Vec3 forward,
-                             Vec3 right,
-                             Vec3 up,
-                             float durationSeconds) noexcept;
     [[nodiscard]] std::optional<SwingContact> update(float deltaSeconds,
                                                      const world::FrontierWorld& world,
                                                      Vec3 feet,
                                                      bool crouching,
-                                                     Vec3 eye,
-                                                     Vec3 forward,
-                                                     Vec3 right,
-                                                     Vec3 up) noexcept;
-    [[nodiscard]] std::optional<SwingContact> update(float deltaSeconds,
-                                                     const world::FrontierWorld& world,
                                                      Vec3 eye,
                                                      Vec3 forward,
                                                      Vec3 right,
