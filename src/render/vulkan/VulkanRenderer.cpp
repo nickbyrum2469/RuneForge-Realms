@@ -54,8 +54,6 @@ game::Vec3 cameraRight(game::Vec3 forward) noexcept {
 }
 
 game::Vec3 cameraUp(game::Vec3 forward, game::Vec3 right) noexcept {
-    // cross(forward, right). Keeping this in one helper prevents first-person rendering and
-    // physical contact from silently disagreeing about the player's camera basis.
     return game::normalized({
         -forward.y * right.z,
         forward.z * right.x - forward.x * right.z,
@@ -223,8 +221,6 @@ void VulkanRenderer::updateMining(float deltaSeconds) {
     const auto right = cameraRight(forward);
     const auto up = cameraUp(forward, right);
 
-    // The view ray only chooses what the player intends to punch. It cannot apply damage by itself.
-    // Reach is capped to the fist's physical envelope; a six-metre camera laser can no longer mine.
     constexpr float acquisitionReach = game::interaction::MiningSwing::fistReach + 0.04f;
     const auto target = world_.raycast(eye.x, eye.y, eye.z,
                                        forward.x, forward.y, forward.z, acquisitionReach);
@@ -235,15 +231,11 @@ void VulkanRenderer::updateMining(float deltaSeconds) {
         ? 0.45f
         : game::mining::MiningSystem::strikeInterval(block);
 
-    if (!miningSwing_.active() && target.hit && target.block.y > 0 &&
-        miningCadence_.update(deltaSeconds, interval)) {
-        // Contact happens during the middle of this animation. Recovery remains controlled by the
-        // independent mining cadence, so button spam cannot start overlapping arms or skip cooldowns.
+    const bool canBeginSwing = !miningSwing_.active() && target.hit && target.block.y > 0;
+    const bool cadenceReady = miningCadence_.update(deltaSeconds, interval, canBeginSwing);
+    if (canBeginSwing && cadenceReady) {
         const float swingDuration = std::clamp(interval * 0.90f, 0.38f, 0.92f);
         (void)miningSwing_.begin(target, eye, forward, right, up, swingDuration);
-    } else if (!miningSwing_.active()) {
-        // Keep cooldown time moving even while no block is reachable, without fabricating a swing.
-        (void)miningCadence_.update(deltaSeconds, interval);
     }
 
     if (miningSwing_.active()) {
@@ -568,6 +560,7 @@ void VulkanRenderer::updateWindowTitle() {
     title += L" | Micro " + std::to_wstring(world_.promotedBlockCount());
     title += L" | Drops " + std::to_wstring(drops_.drops().size());
     title += L" | FX " + std::to_wstring(particles_.size());
+    title += L" | Water " + std::to_wstring(world_.activeWaterCellCount()) + L" active";
     title += L" | " + gpu;
     if (paused_) title += L" | Esc: Resume";
     else title += L" | Hold LMB Swing/Mine | RMB Place | M Mining Mode | 1-9 Hotbar | Tab/I Inventory | Esc Pause";
