@@ -20,6 +20,34 @@ std::uint32_t packHotbarStack(const game::inventory::ItemStack& stack) noexcept 
            ((static_cast<std::uint32_t>(stack.count) & 0xffu) << 8u);
 }
 
+struct SpawnPoint {
+    int x{};
+    int y{};
+    int z{};
+};
+
+SpawnPoint findDrySpawn(const world::FrontierWorld& world) noexcept {
+    // Search deterministic concentric squares inside the already resident startup area. A valid spawn
+    // must be actual grass terrain with two air cells above it, never a water column or tree canopy.
+    constexpr int maxRadius = 40;
+    for (int radius = 0; radius <= maxRadius; ++radius) {
+        for (int z = -radius; z <= radius; ++z) {
+            for (int x = -radius; x <= radius; ++x) {
+                if (radius > 0 && std::abs(x) != radius && std::abs(z) != radius) continue;
+                const int ground = world.topSolidY(x, z);
+                if (ground < 1 || ground + 2 >= world::VoxelChunk::sizeY) continue;
+                if (world.getBlock(x, ground, z) != world::BlockId::Grass) continue;
+                if (world.getBlock(x, ground + 1, z) != world::BlockId::Air) continue;
+                if (world.getBlock(x, ground + 2, z) != world::BlockId::Air) continue;
+                return {x, ground + 1, z};
+            }
+        }
+    }
+
+    const int fallback = std::max(world.topSolidY(0, 0) + 1, 2);
+    return {0, fallback, 0};
+}
+
 } // namespace
 
 VulkanRenderer::VulkanRenderer(HWND hwnd, std::filesystem::path savePath, bool continueExisting)
@@ -63,8 +91,10 @@ bool VulkanRenderer::initializeSession() {
         std::chrono::high_resolution_clock::now().time_since_epoch().count());
     const std::uint32_t seed = static_cast<std::uint32_t>((ticks >> 17) ^ ticks ^ 0x52465247u);
     world_.generate(seed == 0 ? 1337u : seed);
-    const int spawnY = world_.topSolidY(0, 0);
-    player_.spawn({0.5f, static_cast<float>(std::max(spawnY + 1, 2)) + 0.01f, 0.5f}, 0.65f, -0.10f);
+    const SpawnPoint spawn = findDrySpawn(world_);
+    player_.spawn({static_cast<float>(spawn.x) + 0.5f,
+                   static_cast<float>(spawn.y) + 0.01f,
+                   static_cast<float>(spawn.z) + 0.5f}, 0.65f, -0.10f);
     player_.setMouseSensitivity(settings_.mouseSensitivity);
     sessionReady_ = true;
     return true;
