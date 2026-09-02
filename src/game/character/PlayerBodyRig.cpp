@@ -106,7 +106,7 @@ LegPose PlayerBodyRig::solveLeg(Vec3 hip,
     pose.hip = hip;
     pose.knee = solved.middle;
     pose.ankle = solved.end;
-    pose.foot = pose.ankle + forward * 0.115f + Vec3{0.0f, 0.015f, 0.0f};
+    pose.foot = pose.ankle + forward * 0.150f + Vec3{0.0f, 0.015f, 0.0f};
     return pose;
 }
 
@@ -131,11 +131,13 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
     pose.neck = pose.chest + torsoDirection * 0.145f;
     pose.head = pose.neck + torsoDirection * 0.155f;
 
-    const Vec3 rightShoulder = pose.chest + pose.right * 0.275f + torsoDirection * 0.020f;
-    const Vec3 leftShoulder = pose.chest - pose.right * 0.275f + torsoDirection * 0.020f;
+    const Vec3 rightShoulder = pose.chest + pose.right * 0.295f + torsoDirection * 0.020f;
+    const Vec3 leftShoulder = pose.chest - pose.right * 0.295f + torsoDirection * 0.020f;
 
-    const Vec3 rightRestHand = pose.pelvis + pose.right * 0.255f + pose.forward * 0.095f + pose.up * 0.020f;
-    const Vec3 leftRestHand = pose.pelvis - pose.right * 0.255f + pose.forward * 0.085f + pose.up * 0.015f;
+    // The reference hero's arms hang naturally beside the upper thighs. The previous rest target
+    // sat above the pelvis and forced a permanent bent-elbow mannequin pose.
+    const Vec3 rightRestHand = pose.pelvis + pose.right * 0.305f + pose.forward * 0.045f - pose.up * 0.075f;
+    const Vec3 leftRestHand = pose.pelvis - pose.right * 0.305f + pose.forward * 0.040f - pose.up * 0.075f;
     const Vec3 rightDesired = rightHandTarget ? *rightHandTarget : rightRestHand;
     const Vec3 leftDesired = leftHandTarget ? *leftHandTarget : leftRestHand;
 
@@ -145,12 +147,12 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
                                                    pose.forward * 0.55f - pose.up * 0.70f - pose.right * 0.25f);
     pose.rightArm = solveArm(rightShoulder,
                              rightDesired,
-                             pose.right * 0.72f - pose.up * 0.78f - pose.forward * 0.12f,
+                             pose.right * 0.58f - pose.up * 0.88f + pose.forward * 0.06f,
                              rightHandDirection,
                              true);
     pose.leftArm = solveArm(leftShoulder,
                             leftDesired,
-                            pose.right * -0.72f - pose.up * 0.78f - pose.forward * 0.12f,
+                            pose.right * -0.58f - pose.up * 0.88f + pose.forward * 0.06f,
                             leftHandDirection,
                             false);
 

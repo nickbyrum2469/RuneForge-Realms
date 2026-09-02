@@ -62,6 +62,11 @@ void runCharacterRigTests() {
     assertFixedArm(body.leftArm);
     assertFixedLeg(body.rightLeg);
     assertFixedLeg(body.leftLeg);
+    assert(body.rightArm.hand.y < body.pelvis.y - 0.035f);
+    assert(body.leftArm.hand.y < body.pelvis.y - 0.035f);
+    assert(distance(body.rightArm.shoulder, body.leftArm.shoulder) > 0.58f);
+    assert(game::dot(body.rightLeg.foot - body.rightLeg.ankle, body.forward) > 0.145f);
+    assert(game::dot(body.leftLeg.foot - body.leftLeg.ankle, body.forward) > 0.145f);
 
     const game::Vec3 impossibleHand{6.0f, 12.0f, 7.0f};
     body = game::character::PlayerBodyRig::solve(feet, forward, false, &impossibleHand);
@@ -90,6 +95,8 @@ void runCharacterRigTests() {
     assert(hasMaterial(baseMesh, world::SurfaceMaterial::CharacterLoincloth));
     assert(!hasMaterial(baseMesh, world::SurfaceMaterial::CharacterBlueCloth));
     assert(!hasMaterial(baseMesh, world::SurfaceMaterial::CharacterMetal));
+    // The reference-driven base uses substantially denser small-voxel sculpting than the old sparse mannequin.
+    assert(baseMesh.quadCount > 2200);
 
     auto gearedAppearance = baseAppearance;
     gearedAppearance.chest = game::character::GearVisual::Cloth;
