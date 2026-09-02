@@ -139,6 +139,11 @@ bool VulkanRenderer::createPipeline() {
     depthWorld.depthWriteEnable = VK_TRUE;
     depthWorld.depthCompareOp = VK_COMPARE_OP_LESS;
 
+    VkPipelineDepthStencilStateCreateInfo depthWater{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    depthWater.depthTestEnable = VK_TRUE;
+    depthWater.depthWriteEnable = VK_FALSE;
+    depthWater.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
     VkPipelineColorBlendAttachmentState opaqueAttachment{};
     opaqueAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                                       VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
@@ -195,6 +200,10 @@ bool VulkanRenderer::createPipeline() {
     if (result == VK_SUCCESS) {
         result = createGraphics(worldVertex, "VSMain", worldFragment, "PSMain",
                                 &worldVertexInput, &depthWorld, &opaqueBlend, pipeline_);
+    }
+    if (result == VK_SUCCESS) {
+        result = createGraphics(worldVertex, "VSMain", worldFragment, "PSMain",
+                                &worldVertexInput, &depthWater, &alphaBlend, waterPipeline_);
     }
     if (result == VK_SUCCESS) {
         result = createGraphics(fullscreenVertex, "VSFullscreen", hudFragment, "PSHud",
@@ -272,7 +281,12 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, std::uin
     vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-    drawSceneMeshes(commandBuffer);
+    drawSceneMeshes(commandBuffer, false);
+
+    // Transparent water is isolated from the opaque terrain index stream. That avoids drawing the
+    // whole world twice and gives fluids independent blend/depth policy without destabilizing terrain.
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipeline_);
+    drawSceneMeshes(commandBuffer, true);
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, hudPipeline_);
     vkCmdDraw(commandBuffer, 3, 1, 0, 0);
