@@ -28,6 +28,24 @@ void attachDamageVisuals(world::ChunkMeshingSnapshot& snapshot,
     }
 }
 
+void splitIndicesByMaterial(const world::VoxelMesh& mesh,
+                            std::vector<std::uint32_t>& opaque,
+                            std::vector<std::uint32_t>& water) {
+    opaque.clear();
+    water.clear();
+    opaque.reserve(mesh.indices.size());
+    water.reserve(mesh.indices.size() / 8);
+    for (std::size_t i = 0; i + 2 < mesh.indices.size(); i += 3) {
+        const std::uint32_t i0 = mesh.indices[i];
+        const auto material = static_cast<world::SurfaceMaterial>(
+            mesh.vertices[i0].material & world::surfaceMaterialMask);
+        auto& destination = material == world::SurfaceMaterial::Water ? water : opaque;
+        destination.push_back(mesh.indices[i]);
+        destination.push_back(mesh.indices[i + 1]);
+        destination.push_back(mesh.indices[i + 2]);
+    }
+}
+
 } // namespace
 
 bool VulkanRenderer::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
@@ -85,6 +103,7 @@ bool VulkanRenderer::copyBuffer(VkBuffer source, VkBuffer destination, VkDeviceS
 
 bool VulkanRenderer::uploadDeviceLocal(const void* data, VkDeviceSize size,
                                        VkBufferUsageFlags finalUsage, BufferResource& output) {
+    if (size == 0) return true;
     BufferResource staging;
     if (!createBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, staging)) return false;
@@ -109,7 +128,8 @@ bool VulkanRenderer::uploadDeviceLocal(const void* data, VkDeviceSize size,
 }
 
 void VulkanRenderer::destroyChunkMesh(GpuChunkMesh& mesh) {
-    destroyBuffer(mesh.indices);
+    destroyBuffer(mesh.waterIndices);
+    destroyBuffer(mesh.opaqueIndices);
     destroyBuffer(mesh.vertices);
     mesh = {};
 }
@@ -118,6 +138,16 @@ world::meshing::SurfaceDetailTier VulkanRenderer::surfaceDetailTierFor(world::Ch
     const auto position = player_.position();
     const world::ChunkCoord playerChunk = world::chunkFromWorld(position.x, position.z);
     const int distance = world::chebyshevDistance(coord, playerChunk);
+
+    if (settings_.foliageQuality <= 0) {
+        return distance <= 2 ? world::meshing::SurfaceDetailTier::Standard
+                             : world::meshing::SurfaceDetailTier::Distant;
+    }
+    if (settings_.foliageQuality == 1) {
+        if (distance <= 1) return world::meshing::SurfaceDetailTier::Hero;
+        if (distance <= 3) return world::meshing::SurfaceDetailTier::Standard;
+        return world::meshing::SurfaceDetailTier::Distant;
+    }
     if (distance <= kHeroDetailRadius) return world::meshing::SurfaceDetailTier::Hero;
     if (distance <= kStandardDetailRadius) return world::meshing::SurfaceDetailTier::Standard;
     return world::meshing::SurfaceDetailTier::Distant;
@@ -135,17 +165,37 @@ bool VulkanRenderer::uploadChunkMesh(world::ChunkCoord coord, std::uint64_t revi
         return true;
     }
 
+    std::vector<std::uint32_t> opaqueIndices;
+    std::vector<std::uint32_t> waterIndices;
+    splitIndicesByMaterial(mesh, opaqueIndices, waterIndices);
+
     GpuChunkMesh replacement;
     const VkDeviceSize vertexBytes = static_cast<VkDeviceSize>(mesh.vertices.size() * sizeof(world::MeshVertex));
-    const VkDeviceSize indexBytes = static_cast<VkDeviceSize>(mesh.indices.size() * sizeof(std::uint32_t));
-    if (!uploadDeviceLocal(mesh.vertices.data(), vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, replacement.vertices) ||
-        !uploadDeviceLocal(mesh.indices.data(), indexBytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, replacement.indices)) {
+    if (!uploadDeviceLocal(mesh.vertices.data(), vertexBytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, replacement.vertices)) {
         destroyChunkMesh(replacement);
-        setError(L"RuneForge could not upload a streamed Frontier chunk mesh to GPU memory.");
+        setError(L"RuneForge could not upload streamed Frontier vertex data to GPU memory.");
         return false;
     }
 
-    replacement.indexCount = static_cast<std::uint32_t>(mesh.indices.size());
+    if (!opaqueIndices.empty()) {
+        const VkDeviceSize bytes = static_cast<VkDeviceSize>(opaqueIndices.size() * sizeof(std::uint32_t));
+        if (!uploadDeviceLocal(opaqueIndices.data(), bytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, replacement.opaqueIndices)) {
+            destroyChunkMesh(replacement);
+            setError(L"RuneForge could not upload opaque Frontier indices to GPU memory.");
+            return false;
+        }
+    }
+    if (!waterIndices.empty()) {
+        const VkDeviceSize bytes = static_cast<VkDeviceSize>(waterIndices.size() * sizeof(std::uint32_t));
+        if (!uploadDeviceLocal(waterIndices.data(), bytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, replacement.waterIndices)) {
+            destroyChunkMesh(replacement);
+            setError(L"RuneForge could not upload transparent water indices to GPU memory.");
+            return false;
+        }
+    }
+
+    replacement.opaqueIndexCount = static_cast<std::uint32_t>(opaqueIndices.size());
+    replacement.waterIndexCount = static_cast<std::uint32_t>(waterIndices.size());
     replacement.quadCount = mesh.quadCount;
     replacement.solidBlockCount = solidBlockCount;
     replacement.revision = revision;
@@ -295,21 +345,24 @@ void VulkanRenderer::removeUnloadedChunkMeshes() {
     refreshSceneCounters();
 }
 
-void VulkanRenderer::drawSceneMeshes(VkCommandBuffer commandBuffer) {
+void VulkanRenderer::drawSceneMeshes(VkCommandBuffer commandBuffer, bool waterPass) {
     const scene::ChunkCullInput cull{
         player_.eyePosition(), player_.lookDirection(),
         static_cast<float>((world::FrontierWorld::streamingPrefetchRadius + 1) * world::VoxelChunk::sizeX),
     };
-    visibleChunkCount_ = 0;
+    if (!waterPass) visibleChunkCount_ = 0;
     for (auto& [coord, mesh] : chunkMeshes_) {
-        if (mesh.indexCount == 0 || !scene::ChunkCulling::visible(coord, cull)) continue;
+        if (!scene::ChunkCulling::visible(coord, cull)) continue;
+        const auto indexCount = waterPass ? mesh.waterIndexCount : mesh.opaqueIndexCount;
+        const auto indexBuffer = waterPass ? mesh.waterIndices.buffer : mesh.opaqueIndices.buffer;
+        if (indexCount == 0 || indexBuffer == VK_NULL_HANDLE) continue;
         const VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, &mesh.vertices.buffer, &offset);
-        vkCmdBindIndexBuffer(commandBuffer, mesh.indices.buffer, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(commandBuffer, mesh.indexCount, 1, 0, 0, 0);
-        ++visibleChunkCount_;
+        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
+        if (!waterPass) ++visibleChunkCount_;
     }
-    drawWorldDrops(commandBuffer);
+    if (!waterPass) drawWorldDrops(commandBuffer);
 }
 
 void VulkanRenderer::refreshSceneCounters() {
