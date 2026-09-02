@@ -47,24 +47,27 @@ VkShaderModule VulkanRenderer::createShaderModule(const std::vector<std::uint32_
 bool VulkanRenderer::createPipeline() {
     const auto worldVertexCode = readSpirv(shaderPath(L"voxel_scene.vert.spv"));
     const auto worldFragmentCode = readSpirv(shaderPath(L"voxel_scene.frag.spv"));
+    const auto waterFragmentCode = readSpirv(shaderPath(L"water.frag.spv"));
     const auto fullscreenVertexCode = readSpirv(shaderPath(L"fullscreen.vert.spv"));
     const auto skyFragmentCode = readSpirv(shaderPath(L"sky.frag.spv"));
     const auto hudFragmentCode = readSpirv(shaderPath(L"hud.frag.spv"));
-    if (worldVertexCode.empty() || worldFragmentCode.empty() || fullscreenVertexCode.empty() ||
-        skyFragmentCode.empty() || hudFragmentCode.empty()) {
+    if (worldVertexCode.empty() || worldFragmentCode.empty() || waterFragmentCode.empty() ||
+        fullscreenVertexCode.empty() || skyFragmentCode.empty() || hudFragmentCode.empty()) {
         setError(L"Compiled RuneForge Vulkan visual shaders were not found beside the executable.");
         return false;
     }
 
     const VkShaderModule worldVertex = createShaderModule(worldVertexCode);
     const VkShaderModule worldFragment = createShaderModule(worldFragmentCode);
+    const VkShaderModule waterFragment = createShaderModule(waterFragmentCode);
     const VkShaderModule fullscreenVertex = createShaderModule(fullscreenVertexCode);
     const VkShaderModule skyFragment = createShaderModule(skyFragmentCode);
     const VkShaderModule hudFragment = createShaderModule(hudFragmentCode);
-    if (worldVertex == VK_NULL_HANDLE || worldFragment == VK_NULL_HANDLE || fullscreenVertex == VK_NULL_HANDLE ||
-        skyFragment == VK_NULL_HANDLE || hudFragment == VK_NULL_HANDLE) {
+    if (worldVertex == VK_NULL_HANDLE || worldFragment == VK_NULL_HANDLE || waterFragment == VK_NULL_HANDLE ||
+        fullscreenVertex == VK_NULL_HANDLE || skyFragment == VK_NULL_HANDLE || hudFragment == VK_NULL_HANDLE) {
         if (worldVertex != VK_NULL_HANDLE) vkDestroyShaderModule(device_, worldVertex, nullptr);
         if (worldFragment != VK_NULL_HANDLE) vkDestroyShaderModule(device_, worldFragment, nullptr);
+        if (waterFragment != VK_NULL_HANDLE) vkDestroyShaderModule(device_, waterFragment, nullptr);
         if (fullscreenVertex != VK_NULL_HANDLE) vkDestroyShaderModule(device_, fullscreenVertex, nullptr);
         if (skyFragment != VK_NULL_HANDLE) vkDestroyShaderModule(device_, skyFragment, nullptr);
         if (hudFragment != VK_NULL_HANDLE) vkDestroyShaderModule(device_, hudFragment, nullptr);
@@ -83,6 +86,7 @@ bool VulkanRenderer::createPipeline() {
         vkDestroyShaderModule(device_, hudFragment, nullptr);
         vkDestroyShaderModule(device_, skyFragment, nullptr);
         vkDestroyShaderModule(device_, fullscreenVertex, nullptr);
+        vkDestroyShaderModule(device_, waterFragment, nullptr);
         vkDestroyShaderModule(device_, worldFragment, nullptr);
         vkDestroyShaderModule(device_, worldVertex, nullptr);
         setError(L"RuneForge pipeline layout creation failed", result);
@@ -202,7 +206,7 @@ bool VulkanRenderer::createPipeline() {
                                 &worldVertexInput, &depthWorld, &opaqueBlend, pipeline_);
     }
     if (result == VK_SUCCESS) {
-        result = createGraphics(worldVertex, "VSMain", worldFragment, "PSMain",
+        result = createGraphics(worldVertex, "VSMain", waterFragment, "PSWater",
                                 &worldVertexInput, &depthWater, &alphaBlend, waterPipeline_);
     }
     if (result == VK_SUCCESS) {
@@ -213,6 +217,7 @@ bool VulkanRenderer::createPipeline() {
     vkDestroyShaderModule(device_, hudFragment, nullptr);
     vkDestroyShaderModule(device_, skyFragment, nullptr);
     vkDestroyShaderModule(device_, fullscreenVertex, nullptr);
+    vkDestroyShaderModule(device_, waterFragment, nullptr);
     vkDestroyShaderModule(device_, worldFragment, nullptr);
     vkDestroyShaderModule(device_, worldVertex, nullptr);
 
