@@ -76,6 +76,45 @@ void runCharacterRigTests() {
     assert(game::dot(body.rightLeg.foot - body.rightLeg.ankle, body.forward) > 0.145f);
     assert(game::dot(body.leftLeg.foot - body.leftLeg.ankle, body.forward) > 0.145f);
 
+    // Third-person locomotion uses phase-driven arm/leg targets, but every articulated segment must
+    // remain the same anatomical length. Opposite phases should swap the leading foot and arm.
+    game::character::BodyMotionState gaitA;
+    gaitA.locomotionAmount = 1.0f;
+    gaitA.locomotionPhase = 1.57079632679f;
+    gaitA.idlePhase = 0.0f;
+    const auto walkingA = game::character::PlayerBodyRig::solve(feet, forward, false, nullptr, nullptr, &gaitA);
+    assertFixedArm(walkingA.rightArm);
+    assertFixedArm(walkingA.leftArm);
+    assertFixedLeg(walkingA.rightLeg);
+    assertFixedLeg(walkingA.leftLeg);
+    assert(game::dot(walkingA.rightLeg.ankle - feet, walkingA.forward) >
+           game::dot(walkingA.leftLeg.ankle - feet, walkingA.forward) + 0.15f);
+    assert(game::dot(walkingA.leftArm.hand - walkingA.pelvis, walkingA.forward) >
+           game::dot(walkingA.rightArm.hand - walkingA.pelvis, walkingA.forward) + 0.12f);
+    assert(walkingA.rightLeg.ankle.y > walkingA.leftLeg.ankle.y + 0.04f);
+
+    game::character::BodyMotionState gaitB = gaitA;
+    gaitB.locomotionPhase = 4.71238898038f;
+    const auto walkingB = game::character::PlayerBodyRig::solve(feet, forward, false, nullptr, nullptr, &gaitB);
+    assertFixedArm(walkingB.rightArm);
+    assertFixedArm(walkingB.leftArm);
+    assertFixedLeg(walkingB.rightLeg);
+    assertFixedLeg(walkingB.leftLeg);
+    assert(game::dot(walkingB.leftLeg.ankle - feet, walkingB.forward) >
+           game::dot(walkingB.rightLeg.ankle - feet, walkingB.forward) + 0.15f);
+    assert(game::dot(walkingB.rightArm.hand - walkingB.pelvis, walkingB.forward) >
+           game::dot(walkingB.leftArm.hand - walkingB.pelvis, walkingB.forward) + 0.12f);
+    assert(walkingB.leftLeg.ankle.y > walkingB.rightLeg.ankle.y + 0.04f);
+
+    game::character::BodyMotionState idleMotion;
+    idleMotion.idlePhase = 1.57079632679f;
+    const auto breathing = game::character::PlayerBodyRig::solve(feet, forward, false, nullptr, nullptr, &idleMotion);
+    assertFixedArm(breathing.rightArm);
+    assertFixedArm(breathing.leftArm);
+    assertFixedLeg(breathing.rightLeg);
+    assertFixedLeg(breathing.leftLeg);
+    assert(breathing.pelvis.y > body.pelvis.y + 0.003f);
+
     const game::Vec3 impossibleHand{6.0f, 12.0f, 7.0f};
     body = game::character::PlayerBodyRig::solve(feet, forward, false, &impossibleHand);
     assertFixedArm(body.rightArm);
