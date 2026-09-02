@@ -58,7 +58,7 @@ void runRegistryTests() {
     const auto& heroEyeWhite = rf::render::materials::MaterialRegistry::get(rf::world::SurfaceMaterial::CharacterEyeWhite);
     const auto& heroEyeBlue = rf::render::materials::MaterialRegistry::get(rf::world::SurfaceMaterial::CharacterEyeBlue);
     const auto& heroLoincloth = rf::render::materials::MaterialRegistry::get(rf::world::SurfaceMaterial::CharacterLoincloth);
-    assert(heroHair.name == "hero_hair");
+    assert(heroHair.name == "hero_dark_hair");
     assert(heroEyeWhite.name == "hero_eye_white");
     assert(heroEyeBlue.name == "hero_eye_blue");
     assert(heroLoincloth.name == "hero_loincloth");
