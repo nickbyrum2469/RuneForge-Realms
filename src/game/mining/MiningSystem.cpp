@@ -40,10 +40,11 @@ int MiningSystem::microChipRadius(world::BlockId block, MiningMode mode) noexcep
             case world::BlockId::Dirt:
             case world::BlockId::Stone:
             case world::BlockId::Wood: return 1;
+            case world::BlockId::Water:
             case world::BlockId::Air: return 0;
         }
     }
-    return 1;
+    return block == world::BlockId::Water || block == world::BlockId::Air ? 0 : 1;
 }
 
 float MiningSystem::toolEfficiency(const world::blocks::BlockDefinition& definition,
@@ -74,7 +75,7 @@ MiningOutcome MiningSystem::strike(world::FrontierWorld& world, const world::Ray
     if (!hit.hit) return result;
 
     const world::BlockId block = world.getBlock(hit.block.x, hit.block.y, hit.block.z);
-    if (block == world::BlockId::Air) return result;
+    if (block == world::BlockId::Air || world::isFluid(block)) return result;
     result.block = block;
 
     const auto& definition = world::blocks::BlockRegistry::get(block);
