@@ -4,6 +4,7 @@
 
 #include "game/items/ItemId.h"
 #include "save/FrontierSave.h"
+#include "world/blocks/BlockRegistry.h"
 
 #include <algorithm>
 #include <chrono>
@@ -46,6 +47,22 @@ SpawnPoint findDrySpawn(const world::FrontierWorld& world) noexcept {
     return {0, fallback, 0};
 }
 
+game::Vec3 cameraRight(game::Vec3 forward) noexcept {
+    game::Vec3 right = game::normalized({forward.z, 0.0f, -forward.x});
+    if (game::lengthSquared(right) <= 0.000001f) right = {1.0f, 0.0f, 0.0f};
+    return right;
+}
+
+game::Vec3 cameraUp(game::Vec3 forward, game::Vec3 right) noexcept {
+    // cross(forward, right). Keeping this in one helper prevents first-person rendering and
+    // physical contact from silently disagreeing about the player's camera basis.
+    return game::normalized({
+        -forward.y * right.z,
+        forward.z * right.x - forward.x * right.z,
+        -forward.y * right.x,
+    });
+}
+
 } // namespace
 
 VulkanRenderer::VulkanRenderer(HWND hwnd, std::filesystem::path savePath, bool continueExisting)
@@ -57,9 +74,11 @@ bool VulkanRenderer::initializeSession() {
     inventory_.clear();
     drops_.clear();
     particles_.clear();
+    audioEvents_.clear();
     mining_.clearAllDamage();
     mining_.setMode(game::mining::MiningMode::Mixed);
     miningCadence_.reset();
+    miningSwing_.reset();
     microHarvestCells_.clear();
     currentMiningTarget_.reset();
     currentMiningProgress_ = 0.0f;
@@ -139,6 +158,7 @@ void VulkanRenderer::shutdown() {
     if (device_ != VK_NULL_HANDLE) vkDeviceWaitIdle(device_);
 
     if (device_ != VK_NULL_HANDLE) {
+        destroyFirstPersonBodyMesh();
         destroyParticleMesh();
         destroyDropMesh();
         destroySceneMesh();
@@ -199,11 +219,38 @@ void VulkanRenderer::saveNow() {
 
 void VulkanRenderer::updateMining(float deltaSeconds) {
     const auto eye = player_.eyePosition();
-    const auto direction = player_.lookDirection();
-    const auto hit = world_.raycast(eye.x, eye.y, eye.z, direction.x, direction.y, direction.z, 6.0f);
-    const world::BlockId block = hit.hit ? world_.getBlock(hit.block.x, hit.block.y, hit.block.z) : world::BlockId::Air;
-    const float interval = block == world::BlockId::Air ? 0.45f : game::mining::MiningSystem::strikeInterval(block);
-    if (miningCadence_.update(deltaSeconds, interval) && hit.hit) mineTargetBlock();
+    const auto forward = player_.lookDirection();
+    const auto right = cameraRight(forward);
+    const auto up = cameraUp(forward, right);
+
+    // The view ray only chooses what the player intends to punch. It cannot apply damage by itself.
+    // Reach is capped to the fist's physical envelope; a six-metre camera laser can no longer mine.
+    constexpr float acquisitionReach = game::interaction::MiningSwing::fistReach + 0.04f;
+    const auto target = world_.raycast(eye.x, eye.y, eye.z,
+                                       forward.x, forward.y, forward.z, acquisitionReach);
+    const world::BlockId block = target.hit
+        ? world_.getBlock(target.block.x, target.block.y, target.block.z)
+        : world::BlockId::Air;
+    const float interval = block == world::BlockId::Air
+        ? 0.45f
+        : game::mining::MiningSystem::strikeInterval(block);
+
+    if (!miningSwing_.active() && target.hit && target.block.y > 0 &&
+        miningCadence_.update(deltaSeconds, interval)) {
+        // Contact happens during the middle of this animation. Recovery remains controlled by the
+        // independent mining cadence, so button spam cannot start overlapping arms or skip cooldowns.
+        const float swingDuration = std::clamp(interval * 0.90f, 0.38f, 0.92f);
+        (void)miningSwing_.begin(target, eye, forward, right, up, swingDuration);
+    } else if (!miningSwing_.active()) {
+        // Keep cooldown time moving even while no block is reachable, without fabricating a swing.
+        (void)miningCadence_.update(deltaSeconds, interval);
+    }
+
+    if (miningSwing_.active()) {
+        if (const auto contact = miningSwing_.update(deltaSeconds, world_, eye, forward, right, up)) {
+            applyMiningContact(contact->hit);
+        }
+    }
 }
 
 void VulkanRenderer::updateGameplay(float deltaSeconds) {
@@ -247,7 +294,9 @@ void VulkanRenderer::updatePushData(float elapsedSeconds) {
     pushData_.miningMode = static_cast<float>(static_cast<std::uint8_t>(mining_.mode()));
 
     const auto direction = player_.lookDirection();
-    const auto hit = world_.raycast(eye.x, eye.y, eye.z, direction.x, direction.y, direction.z, 6.0f);
+    constexpr float interactionReach = game::interaction::MiningSwing::fistReach + 0.04f;
+    const auto hit = world_.raycast(eye.x, eye.y, eye.z,
+                                    direction.x, direction.y, direction.z, interactionReach);
     if (hit.hit && hit.block.y > 0) {
         currentMiningTarget_ = hit.block;
         if (mining_.mode() == game::mining::MiningMode::Micro) {
@@ -294,7 +343,7 @@ void VulkanRenderer::drawFrame() {
     removeUnloadedChunkMeshes();
     queueDirtyChunkMeshes();
     pumpChunkMeshJobs();
-    if (!updateDropMesh() || !updateParticleMesh()) return;
+    if (!updateDropMesh() || !updateParticleMesh() || !updateFirstPersonBodyMesh()) return;
 
     std::uint32_t imageIndex = 0;
     VkResult result = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, frame.imageAvailable, VK_NULL_HANDLE, &imageIndex);
@@ -346,6 +395,7 @@ void VulkanRenderer::resize(unsigned width, unsigned height) {
 void VulkanRenderer::setPaused(bool paused) noexcept {
     paused_ = paused;
     miningCadence_.release();
+    if (paused) miningSwing_.reset();
     player_.setControl(game::MoveControl::Forward, false);
     player_.setControl(game::MoveControl::Backward, false);
     player_.setControl(game::MoveControl::Left, false);
@@ -374,7 +424,7 @@ void VulkanRenderer::onKeyDown(WPARAM key) {
         case '7': inventory_.selectHotbar(6); break;
         case '8': inventory_.selectHotbar(7); break;
         case '9': inventory_.selectHotbar(8); break;
-        case 'M': mining_.cycleMode(); currentMiningProgress_ = 0.0f; break;
+        case 'M': mining_.cycleMode(); currentMiningProgress_ = 0.0f; miningSwing_.reset(); break;
         case VK_F5: saveNow(); break;
         default: break;
     }
@@ -417,15 +467,11 @@ void VulkanRenderer::spawnBlockDrop(world::BlockId block, const world::RaycastHi
                  {direction.x * 0.8f, 2.2f, direction.z * 0.8f});
 }
 
-void VulkanRenderer::mineTargetBlock() {
-    const auto eye = player_.eyePosition();
-    const auto direction = player_.lookDirection();
-    const auto hit = world_.raycast(eye.x, eye.y, eye.z, direction.x, direction.y, direction.z, 6.0f);
-    if (!hit.hit || hit.block.y <= 0) {
-        currentMiningTarget_.reset();
-        currentMiningProgress_ = 0.0f;
-        return;
-    }
+void VulkanRenderer::applyMiningContact(const world::RaycastHit& hit) {
+    if (!hit.hit || hit.block.y <= 0) return;
+    const world::BlockId before = world_.getBlock(hit.block.x, hit.block.y, hit.block.z);
+    if (!world::isSolid(before)) return;
+    const auto& definition = world::blocks::BlockRegistry::get(before);
 
     if (!currentMiningTarget_ || *currentMiningTarget_ != hit.block) {
         currentMiningTarget_ = hit.block;
@@ -441,6 +487,11 @@ void VulkanRenderer::mineTargetBlock() {
                               {hit.worldX, hit.worldY, hit.worldZ},
                               outcome.brokeBlock ? 13u : 3u,
                               outcome.brokeBlock ? 1.25f : 0.65f);
+    audioEvents_.emitBlock(outcome.brokeBlock ? game::audio::AudioEventType::BlockBreak
+                                             : game::audio::AudioEventType::MiningHit,
+                           definition.soundFamily,
+                           {hit.worldX, hit.worldY, hit.worldZ},
+                           outcome.brokeBlock ? 1.0f : 0.72f, true);
 
     if (mining_.mode() == game::mining::MiningMode::Micro) {
         auto& harvested = microHarvestCells_[outcome.block];
@@ -486,6 +537,12 @@ void VulkanRenderer::placeTargetBlock() {
                                    static_cast<float>(hit.adjacent.y) + 0.5f,
                                    static_cast<float>(hit.adjacent.z) + 0.5f},
                                   4u, 0.45f);
+        const auto& definition = world::blocks::BlockRegistry::get(*selected);
+        audioEvents_.emitBlock(game::audio::AudioEventType::BlockPlace, definition.soundFamily,
+                               {static_cast<float>(hit.adjacent.x) + 0.5f,
+                                static_cast<float>(hit.adjacent.y) + 0.5f,
+                                static_cast<float>(hit.adjacent.z) + 0.5f},
+                               0.72f, true);
     }
 }
 
@@ -513,7 +570,7 @@ void VulkanRenderer::updateWindowTitle() {
     title += L" | FX " + std::to_wstring(particles_.size());
     title += L" | " + gpu;
     if (paused_) title += L" | Esc: Resume";
-    else title += L" | Hold LMB Mine | RMB Place | M Mining Mode | 1-9 Hotbar | Tab/I Inventory | Esc Pause";
+    else title += L" | Hold LMB Swing/Mine | RMB Place | M Mining Mode | 1-9 Hotbar | Tab/I Inventory | Esc Pause";
     SetWindowTextW(hwnd_, title.c_str());
 }
 
