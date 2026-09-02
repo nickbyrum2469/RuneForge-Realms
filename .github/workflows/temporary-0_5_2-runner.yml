@@ -1,0 +1,48 @@
+name: Temporary 0.5.2 Autopatch Runner
+
+on:
+  push:
+    branches: [fix/frontier-camera-reach-visuals-0.5.2]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/frontier-camera-reach-visuals-0.5.2
+          fetch-depth: 0
+      - name: Extract staged patch script
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('.github/workflows/temporary-0_5_2-autopatch.yml').read_text().splitlines()
+          captured = []
+          inside = False
+          for line in source:
+              if line.strip() == "python3 - <<'PY'":
+                  inside = True
+                  continue
+              if inside and line.strip() == 'PY':
+                  break
+              if inside:
+                  captured.append(line[10:] if line.startswith('          ') else line)
+          if not captured:
+              raise SystemExit('staged autopatch Python body was not found')
+          Path('/tmp/runeforge-autopatch.py').write_text('\n'.join(captured) + '\n')
+          PY
+      - name: Apply staged patch
+        run: python3 /tmp/runeforge-autopatch.py
+      - name: Commit patched sources
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src shaders tests
+          git commit -m "fix: repair camera reach targeting and voxel visuals [autopatch]"
+          git push origin HEAD:fix/frontier-camera-reach-visuals-0.5.2
