@@ -139,8 +139,8 @@ float2 cellular2(float2 p) {
         [unroll] for (int x = -1; x <= 1; ++x) {
             float2 offset = float2(x, y);
             float2 id = cell + offset;
-            float2 point = offset + 0.18 + hash22(id) * 0.64;
-            float d = length(point - local);
+            float2 sitePoint = offset + 0.18 + hash22(id) * 0.64;
+            float d = length(sitePoint - local);
             if (d < nearest) {
                 second = nearest;
                 nearest = d;
@@ -174,7 +174,7 @@ MaterialSample sampleMaterial(uint material, float3 p, float3 n) {
     float medium = fbm3(p * 2.25);
     float fine = noise3(p * 12.5);
 
-    if (material == 0) { // grass top: soft, thin and varied; silhouette blades are geometry.
+    if (material == 0) {
         float lush = fbm2(p.xz * 1.35);
         float fleck = noise2(p.xz * 14.0);
         float3 deep = float3(0.055, 0.205, 0.040);
@@ -185,7 +185,7 @@ MaterialSample sampleMaterial(uint material, float3 p, float3 n) {
         s.roughness = 0.91;
         s.relief = lush * 0.26 + fleck * 0.07;
         s.cavity = (1.0 - lush) * 0.08;
-    } else if (material == 1) { // thin turf transition over rooted soil
+    } else if (material == 1) {
         float localY = frac(p.y + 0.001);
         float turf = smoothstep(0.86, 0.995, localY);
         float rootWarp = fbm2(float2(uv.x * 1.7, uv.y * 0.55));
@@ -198,7 +198,7 @@ MaterialSample sampleMaterial(uint material, float3 p, float3 n) {
         s.roughness = 0.96;
         s.relief = medium * 0.19 + root * 0.10;
         s.cavity = root * 0.10 + (1.0 - medium) * 0.05;
-    } else if (material == 2) { // soil clumps + sparse pebble inclusions
+    } else if (material == 2) {
         float2 cells = cellular2(uv * 7.2 + macro * 0.31);
         float clumpEdge = 1.0 - smoothstep(0.035, 0.115, cells.x);
         float pebbleSeed = hash21(floor(uv * 11.0));
@@ -213,7 +213,7 @@ MaterialSample sampleMaterial(uint material, float3 p, float3 n) {
         s.roughness = lerp(0.94, 0.985, 1.0 - moisture);
         s.relief = medium * 0.27 + pebble * 0.24 - clumpEdge * 0.11;
         s.cavity = clumpEdge * 0.18 + (1.0 - medium) * 0.05;
-    } else if (material == 3) { // natural fractured stone plates, no bark-like streaks
+    } else if (material == 3) {
         float2 cells = cellular2(uv * 3.15 + fbm2(uv * 0.65) * 0.36);
         float crevice = 1.0 - smoothstep(0.025, 0.105, cells.x);
         float2 smallCells = cellular2(uv * 8.6 + medium * 0.22);
@@ -228,7 +228,7 @@ MaterialSample sampleMaterial(uint material, float3 p, float3 n) {
         s.roughness = 0.86 + crevice * 0.08;
         s.relief = slab * 0.28 + medium * 0.12 - crevice * 0.35 - microCrevice * 0.10;
         s.cavity = saturate(crevice * 0.86 + microCrevice * 0.42);
-    } else if (material == 4) { // bark: vertical ridges and splits only
+    } else if (material == 4) {
         float warp = fbm2(float2(uv.x * 0.55, uv.y * 0.18));
         float ridgePhase = uv.x * 10.5 + warp * 2.7 + sin(uv.y * 1.4) * 0.24;
         float ridge = 0.5 + 0.5 * sin(ridgePhase * 6.2831853);
@@ -244,7 +244,7 @@ MaterialSample sampleMaterial(uint material, float3 p, float3 n) {
         s.roughness = 0.93;
         s.relief = ridge * 0.35 - split * 0.31 + knot * 0.10;
         s.cavity = split * 0.62 + (1.0 - ridge) * 0.07;
-    } else if (material == 5) { // cut log rings
+    } else if (material == 5) {
         float2 q = frac(uv) - 0.5;
         float radialWarp = fbm2(uv * 2.0) * 0.035;
         float r = length(q) + radialWarp;
@@ -255,7 +255,7 @@ MaterialSample sampleMaterial(uint material, float3 p, float3 n) {
         s.roughness = 0.87;
         s.relief = rings * 0.16 - radialSplit * 0.12;
         s.cavity = radialSplit * 0.24;
-    } else if (material == 6) { // foliage: alpha-clipped, dense but porous
+    } else if (material == 6) {
         float2 local = frac(uv * 2.35);
         float leafCell = hash21(floor(uv * 7.0));
         float veins = abs(local.x - 0.5) * 0.7 + abs(local.y - 0.5);
@@ -303,8 +303,6 @@ float segmentDistance(float2 p, float2 a, float2 b) {
     return length(pa - ba * h);
 }
 
-// Seeded branching fracture mask. Each stage reveals more branches, but the pattern belongs to the
-// world block and material, not to the current crosshair selection.
 float organicDamage(float3 worldPosition, float3 normal, uint material, uint stage) {
     if (stage == 0) return 0.0;
     float2 uv = frac(surfaceUv(worldPosition, normal));
@@ -319,7 +317,7 @@ float organicDamage(float3 worldPosition, float3 normal, uint material, uint sta
         float fi = (float)i;
         float branchSeed = hash11(seed * 17.0 + fi * 9.13);
         float angle = branchSeed * 6.2831853 + fi * 1.71;
-        if (material == 4 || material == 5) angle = lerp(angle, 1.5707963, 0.58); // wood favors grain splits.
+        if (material == 4 || material == 5) angle = lerp(angle, 1.5707963, 0.58);
         float lengthScale = 0.16 + (float)stage * 0.060 + hash11(branchSeed + 2.2) * 0.13;
         float2 dir = float2(cos(angle), sin(angle));
         float2 mid = origin + dir * lengthScale * 0.52;
@@ -337,7 +335,6 @@ float organicDamage(float3 worldPosition, float3 normal, uint material, uint sta
         }
     }
 
-    // Dirt/grass damage reads as localized crumbling rather than sharp mineral cracks.
     if (material <= 2) {
         float crumb = smoothstep(0.63 - stage * 0.045, 0.86 - stage * 0.030,
                                  fbm2(uv * 8.0 + seed * 13.0));
@@ -414,8 +411,6 @@ float4 PSSky(FullscreenOutput input) : SV_Target0 {
     sky += float3(1.0,0.72,0.34) * sun * 3.2;
     sky += float3(1.0,0.54,0.25) * halo * 0.34;
 
-    // Clouds live on a world-space horizontal layer. Camera yaw/pitch only changes which part of the
-    // layer is visible; it no longer supplies the cloud coordinates themselves.
     if (ray.y > 0.018) {
         const float cloudHeight = 118.0;
         float t = (cloudHeight - pushData.eyeY) / max(ray.y, 0.018);
@@ -440,7 +435,7 @@ float4 PSMain(VSOutput input) : SV_Target0 {
     float3 geometricNormal = normalize(input.normal);
     MaterialSample material = sampleMaterial(baseMaterial, input.worldPosition, geometricNormal);
 
-    if (baseMaterial == 6) clip(material.alpha - 0.46); // depth-writing alpha test: porous foliage without glass sorting.
+    if (baseMaterial == 6) clip(material.alpha - 0.46);
 
     float damage = organicDamage(input.worldPosition, geometricNormal, baseMaterial, damageStage);
     if (damage > 0.0) {
@@ -512,7 +507,6 @@ float4 PSHud(FullscreenOutput input) : SV_Target0 {
     float alpha = 0.0;
     float3 color = float3(0.0,0.0,0.0);
 
-    // Single fixed Vulkan reticle. The Win32 hardware cursor is hidden while gameplay is captured.
     float crossH = boxMask(px, float2(0,0), float2(0.014,0.0012), 0.0010);
     float crossV = boxMask(px, float2(0,0), float2(0.0012,0.014), 0.0010);
     float centerCut = 1.0 - boxMask(px, float2(0,0), float2(0.0040,0.0040), 0.0008);
@@ -534,7 +528,6 @@ float4 PSHud(FullscreenOutput input) : SV_Target0 {
         alpha = max(alpha, ring * 0.92);
     }
 
-    // Bottom-center nine-slot hotbar. It reads the actual inventory model packed into push constants.
     const float hotbarY = 0.425;
     [unroll] for (int i = 0; i < 9; ++i) {
         float slotX = (float(i) - 4.0) * 0.064;
@@ -557,7 +550,6 @@ float4 PSHud(FullscreenOutput input) : SV_Target0 {
             color = lerp(color, min(ic * 1.45, 1.0), highlight * item * 0.38);
             alpha = max(alpha, item * 0.96);
 
-            // Compact stack meter: actual count is represented proportionally until font-atlas HUD text lands.
             float countWidth = 0.020 * saturate((float)count / 64.0);
             float meter = boxMask(px, float2(slotX - 0.020 + countWidth, hotbarY + 0.020),
                                  float2(max(countWidth, 0.001), 0.0020), 0.0010);
