@@ -196,7 +196,12 @@ void WindowsAudioSystem::play(const game::audio::AudioEvent& event, game::Vec3 l
 }
 
 void WindowsAudioSystem::consume(const std::vector<game::audio::AudioEvent>& events, game::Vec3 listener) {
-    if (!initialized()) return;
+    if (events.empty()) {
+        update();
+        return;
+    }
+    if (!initialized() && !initialize()) return;
+
     update();
     std::size_t emitted = 0;
     for (const auto& event : events) {
