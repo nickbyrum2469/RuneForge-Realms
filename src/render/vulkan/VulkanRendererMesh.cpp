@@ -3,6 +3,7 @@
 #include "render/vulkan/VulkanRenderer.h"
 
 #include "render/scene/ChunkCulling.h"
+#include "render/scene/ChunkMeshScheduling.h"
 #include "world/meshing/MicroDetailBuilder.h"
 #include "world/meshing/MicroVoxelMesher.h"
 
@@ -243,10 +244,9 @@ bool VulkanRenderer::createSceneMesh() {
 
 bool VulkanRenderer::meshJobPending(world::ChunkCoord coord, std::uint64_t revision,
                                     world::meshing::SurfaceDetailTier detailTier) const noexcept {
-    for (const auto& pending : pendingChunkMeshes_) {
-        if (pending.coord == coord && pending.revision == revision && pending.detailTier == detailTier) return true;
-    }
-    return false;
+    (void)revision;
+    (void)detailTier;
+    return scene::chunkMeshCoordPending(pendingChunkMeshes_, coord);
 }
 
 bool VulkanRenderer::queueChunkMesh(world::ChunkCoord coord) {
@@ -261,7 +261,9 @@ bool VulkanRenderer::queueChunkMesh(world::ChunkCoord coord) {
         return false;
     }
     if (meshJobPending(coord, revision, detailTier)) {
-        world_.markChunkMeshQueued(coord);
+        // Keep the chunk dirty while its current job is in flight. If that result is stale when it
+        // completes, pumpChunkMeshJobs discards it and the next scheduling pass queues the newest
+        // revision/detail tier instead of accumulating obsolete duplicate work now.
         return false;
     }
     if (pendingChunkMeshes_.size() >= kMaxPendingChunkMeshes) return false;
