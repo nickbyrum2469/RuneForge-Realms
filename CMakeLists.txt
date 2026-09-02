@@ -26,8 +26,10 @@ add_library(runeforge_core STATIC
     src/world/growth/GrassGrowth.cpp
     src/world/FrontierWorld.cpp
     src/game/PlayerController.cpp
+    src/game/audio/AudioEventQueue.cpp
     src/game/inventory/Inventory.cpp
     src/game/drops/DropSystem.cpp
+    src/game/interaction/MiningSwing.cpp
     src/game/mining/MiningCadence.cpp
     src/game/mining/MiningSystem.cpp
     src/game/particles/ParticleSystem.cpp
@@ -35,6 +37,7 @@ add_library(runeforge_core STATIC
     src/render/scene/ChunkCulling.cpp
     src/render/scene/DropMeshBuilder.cpp
     src/render/scene/ParticleMeshBuilder.cpp
+    src/render/scene/FirstPersonBodyBuilder.cpp
     src/save/FrontierSave.cpp
     src/save/world/RegionFile.cpp
     src/save/world/MicroRegionFile.cpp
@@ -151,6 +154,7 @@ if(WIN32)
         src/render/vulkan/VulkanRendererMesh.cpp
         src/render/vulkan/VulkanRendererDrops.cpp
         src/render/vulkan/VulkanRendererParticles.cpp
+        src/render/vulkan/VulkanRendererFirstPerson.cpp
         src/ui/HubLayout.cpp
         src/ui/HubPainter.cpp
         src/ui/inventory/InventoryLayout.cpp
