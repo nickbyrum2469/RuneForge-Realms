@@ -2,6 +2,8 @@
 
 #include "game/Math.h"
 
+#include <cmath>
+
 namespace rf::world { class FrontierWorld; }
 
 namespace rf::game {
@@ -30,6 +32,9 @@ public:
     [[nodiscard]] bool crouching() const noexcept { return crouch_; }
     [[nodiscard]] CameraMode cameraMode() const noexcept { return cameraMode_; }
     [[nodiscard]] bool thirdPerson() const noexcept { return cameraMode_ == CameraMode::ThirdPerson; }
+    [[nodiscard]] float horizontalSpeed() const noexcept {
+        return std::sqrt(velocity_.x * velocity_.x + velocity_.z * velocity_.z);
+    }
     [[nodiscard]] float bodyWidth() const noexcept { return crouch_ ? 0.58f : 0.62f; }
     [[nodiscard]] float bodyHeight() const noexcept { return crouch_ ? 1.25f : 1.80f; }
     [[nodiscard]] float eyeHeight() const noexcept { return crouch_ ? 1.10f : 1.62f; }
