@@ -44,13 +44,11 @@ void addVoxelChain(world::VoxelMesh& mesh, game::Vec3 from, game::Vec3 to, int c
 
 void addHand(world::VoxelMesh& mesh, game::Vec3 hand, game::Vec3 right, game::Vec3 up,
              bool armored) {
-    // Existing proven shader identities are intentionally reused for this first playable embodiment:
-    // end-grain gives a warm skin tone, bark reads as leather, stone as dark steel, and FlowerBlue as cloth.
-    addBox(mesh, hand, 0.16f, 0.15f, 0.15f, world::SurfaceMaterial::WoodCut);
-    addBox(mesh, hand - up * 0.105f, 0.17f, 0.08f, 0.17f, world::SurfaceMaterial::WoodBark);
+    addBox(mesh, hand, 0.16f, 0.15f, 0.15f, world::SurfaceMaterial::CharacterSkin);
+    addBox(mesh, hand - up * 0.105f, 0.17f, 0.08f, 0.17f, world::SurfaceMaterial::CharacterLeather);
     if (armored) {
         addBox(mesh, hand + right * 0.055f + up * 0.018f, 0.055f, 0.055f, 0.16f,
-               world::SurfaceMaterial::Stone);
+               world::SurfaceMaterial::CharacterMetal);
     }
 }
 
@@ -72,15 +70,15 @@ world::VoxelMesh FirstPersonBodyBuilder::build(game::Vec3 eye,
         rightHand = swingPose.hand;
     }
 
-    addVoxelChain(mesh, rightShoulder, rightElbow, 5, 0.115f, world::SurfaceMaterial::FlowerBlue);
-    addVoxelChain(mesh, rightElbow, rightHand - up * 0.07f, 5, 0.105f, world::SurfaceMaterial::WoodBark);
+    addVoxelChain(mesh, rightShoulder, rightElbow, 5, 0.115f, world::SurfaceMaterial::CharacterBlueCloth);
+    addVoxelChain(mesh, rightElbow, rightHand - up * 0.07f, 5, 0.105f, world::SurfaceMaterial::CharacterLeather);
     addHand(mesh, rightHand, right, up, true);
 
     const game::Vec3 leftShoulder = eye - right * 0.31f - up * 0.30f - forward * 0.02f;
     const game::Vec3 leftElbow = eye + forward * 0.18f - right * 0.34f - up * 0.46f;
     const game::Vec3 leftHand = eye + forward * 0.40f - right * 0.31f - up * 0.41f;
-    addVoxelChain(mesh, leftShoulder, leftElbow, 5, 0.112f, world::SurfaceMaterial::FlowerBlue);
-    addVoxelChain(mesh, leftElbow, leftHand - up * 0.06f, 4, 0.102f, world::SurfaceMaterial::WoodBark);
+    addVoxelChain(mesh, leftShoulder, leftElbow, 5, 0.112f, world::SurfaceMaterial::CharacterBlueCloth);
+    addVoxelChain(mesh, leftElbow, leftHand - up * 0.06f, 4, 0.102f, world::SurfaceMaterial::CharacterLeather);
     addHand(mesh, leftHand, right * -1.0f, up, false);
 
     return mesh;
