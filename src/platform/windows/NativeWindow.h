@@ -2,6 +2,7 @@
 
 #ifdef _WIN32
 
+#include "audio/windows/WindowsAudioSystem.h"
 #include "core/settings/GameSettings.h"
 #include "render/vulkan/VulkanRenderer.h"
 #include "ui/HubPainter.h"
@@ -52,6 +53,7 @@ private:
     ViewMode settingsReturnMode_{ViewMode::Hub};
     bool mouseCaptured_{false};
     core::settings::GameSettings settings_{};
+    audio::windows::WindowsAudioSystem audioSystem_;
     std::unique_ptr<rf::ui::HubPainter> painter_;
     std::unique_ptr<rf::ui::inventory::InventoryPainter> inventoryPainter_;
     std::unique_ptr<rf::ui::menus::PauseMenuPainter> pausePainter_;
