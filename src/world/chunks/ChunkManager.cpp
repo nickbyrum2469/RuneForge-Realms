@@ -19,6 +19,10 @@ void ChunkManager::clear() noexcept {
 bool ChunkManager::consumePending(ChunkCoord coord, ChunkStreamDelta& delta) {
     for (auto it = pending_.begin(); it != pending_.end(); ++it) {
         if (it->coord != coord) continue;
+        // A prefetched chunk can enter the resident window before its worker finishes. Never turn
+        // that normal streaming transition into a main-thread stall by calling future::get() early.
+        // The chunk remains queued and pumpCompleted() will install it on a later update once ready.
+        if (it->future.wait_for(std::chrono::seconds{0}) != std::future_status::ready) return false;
         VoxelChunk chunk = it->future.get();
         queued_.erase(coord);
         pending_.erase(it);
