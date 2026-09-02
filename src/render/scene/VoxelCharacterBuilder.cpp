@@ -174,8 +174,8 @@ void addHand(world::VoxelMesh& mesh, const PlayerBodyPose& body, const ArmPose& 
 
 void addArm(world::VoxelMesh& mesh, const PlayerBodyPose& body, const ArmPose& arm,
             world::SurfaceMaterial material, float expansion = 0.0f) {
-    const Vec3 upperAxis = safeDirection(arm.shoulder, arm.elbow, -body.up);
-    const Vec3 foreAxis = safeDirection(arm.elbow, arm.wrist, -body.up);
+    const Vec3 upperAxis = safeDirection(arm.shoulder, arm.elbow, body.up * -1.0f);
+    const Vec3 foreAxis = safeDirection(arm.elbow, arm.wrist, body.up * -1.0f);
 
     for (int i = 0; i < 8; ++i) {
         const float t = static_cast<float>(i) / 7.0f;
@@ -207,8 +207,8 @@ void addArm(world::VoxelMesh& mesh, const PlayerBodyPose& body, const ArmPose& a
 
 void addLeg(world::VoxelMesh& mesh, const PlayerBodyPose& body, const LegPose& leg,
             world::SurfaceMaterial material, float expansion = 0.0f) {
-    const Vec3 thighAxis = safeDirection(leg.hip, leg.knee, -body.up);
-    const Vec3 shinAxis = safeDirection(leg.knee, leg.ankle, -body.up);
+    const Vec3 thighAxis = safeDirection(leg.hip, leg.knee, body.up * -1.0f);
+    const Vec3 shinAxis = safeDirection(leg.knee, leg.ankle, body.up * -1.0f);
 
     for (int i = 0; i < 9; ++i) {
         const float t = static_cast<float>(i) / 8.0f;
