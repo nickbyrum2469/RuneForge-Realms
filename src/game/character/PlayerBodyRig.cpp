@@ -139,15 +139,18 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
     pose.neck = pose.chest + torsoDirection * 0.145f;
     pose.head = pose.neck + torsoDirection * 0.155f;
 
-    const Vec3 rightShoulder = pose.chest + pose.right * 0.295f + torsoDirection * 0.020f;
-    const Vec3 leftShoulder = pose.chest - pose.right * 0.295f + torsoDirection * 0.020f;
+    // The supplied hero reference reads as a pronounced V-taper: very broad deltoids/chest over a
+    // compact pelvis. Keep that silhouette in the rig itself so locomotion cannot collapse it back
+    // toward generic humanoid proportions when the arms and legs articulate.
+    const Vec3 rightShoulder = pose.chest + pose.right * 0.315f + torsoDirection * 0.020f;
+    const Vec3 leftShoulder = pose.chest - pose.right * 0.315f + torsoDirection * 0.020f;
 
     // Arms counter-swing against the legs while preserving the exact fixed two-bone lengths. The
     // motion is deliberately compact so the heavy voxel hero feels planted instead of rubbery.
     const float armSwing = walk * locomotion * 0.105f;
-    const Vec3 rightRestHand = pose.pelvis + pose.right * 0.305f + pose.forward * (0.045f - armSwing) -
+    const Vec3 rightRestHand = pose.pelvis + pose.right * 0.325f + pose.forward * (0.045f - armSwing) -
                                pose.up * 0.075f;
-    const Vec3 leftRestHand = pose.pelvis - pose.right * 0.305f + pose.forward * (0.040f + armSwing) -
+    const Vec3 leftRestHand = pose.pelvis - pose.right * 0.325f + pose.forward * (0.040f + armSwing) -
                               pose.up * 0.075f;
     const Vec3 rightDesired = rightHandTarget ? *rightHandTarget : rightRestHand;
     const Vec3 leftDesired = leftHandTarget ? *leftHandTarget : leftRestHand;
@@ -167,8 +170,8 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
                             leftHandDirection,
                             false);
 
-    const Vec3 rightHip = pose.pelvis + pose.right * 0.145f;
-    const Vec3 leftHip = pose.pelvis - pose.right * 0.145f;
+    const Vec3 rightHip = pose.pelvis + pose.right * 0.135f;
+    const Vec3 leftHip = pose.pelvis - pose.right * 0.135f;
     const float crouchFootSpread = crouch * 0.045f;
     const float stepTravel = locomotion * 0.105f;
     const float rightLift = locomotion * std::max(walk, 0.0f) * 0.052f;
