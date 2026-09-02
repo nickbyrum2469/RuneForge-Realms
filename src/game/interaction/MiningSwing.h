@@ -24,10 +24,13 @@ struct SwingContact {
 
 class MiningSwing {
 public:
-    // Camera nomination may reach farther than the arm. The body rig clamps the actual fist to its
-    // fixed upper-arm/forearm lengths, and only the physical fist sweep can produce contact.
-    static constexpr float fistReach = 1.72f;
-    static constexpr float fistRadius = 0.11f;
+    // Interaction reach is intentionally a game-feel value rather than the literal anatomical arm
+    // length. The visible arm remains fixed-length; the strike volume begins at the solved fist and
+    // extends forward during the active frame so a block can be comfortably hit without the camera
+    // having to be pressed against it.
+    static constexpr float interactionReach = 2.45f;
+    static constexpr float fistReach = interactionReach;
+    static constexpr float fistRadius = 0.115f;
 
     void reset() noexcept;
     [[nodiscard]] bool begin(const world::RaycastHit& target,
