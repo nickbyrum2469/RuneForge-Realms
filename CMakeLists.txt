@@ -30,9 +30,11 @@ add_library(runeforge_core STATIC
     src/game/drops/DropSystem.cpp
     src/game/mining/MiningCadence.cpp
     src/game/mining/MiningSystem.cpp
+    src/game/particles/ParticleSystem.cpp
     src/render/materials/MaterialRegistry.cpp
     src/render/scene/ChunkCulling.cpp
     src/render/scene/DropMeshBuilder.cpp
+    src/render/scene/ParticleMeshBuilder.cpp
     src/save/FrontierSave.cpp
     src/save/world/RegionFile.cpp
     src/save/world/MicroRegionFile.cpp
@@ -148,6 +150,7 @@ if(WIN32)
         src/render/vulkan/VulkanRendererPipeline.cpp
         src/render/vulkan/VulkanRendererMesh.cpp
         src/render/vulkan/VulkanRendererDrops.cpp
+        src/render/vulkan/VulkanRendererParticles.cpp
         src/ui/HubLayout.cpp
         src/ui/HubPainter.cpp
         src/ui/inventory/InventoryLayout.cpp
