@@ -5,7 +5,9 @@
 #include "core/jobs/JobSystem.h"
 #include "core/settings/GameSettings.h"
 #include "game/PlayerController.h"
+#include "game/audio/AudioEventQueue.h"
 #include "game/drops/DropSystem.h"
+#include "game/interaction/MiningSwing.h"
 #include "game/inventory/Inventory.h"
 #include "game/mining/MiningCadence.h"
 #include "game/mining/MiningSystem.h"
@@ -167,7 +169,7 @@ private:
     void updateMining(float deltaSeconds);
     void updatePushData(float elapsedSeconds);
     void updateWindowTitle();
-    void mineTargetBlock();
+    void applyMiningContact(const world::RaycastHit& hit);
     void placeTargetBlock();
     void spawnBlockDrop(world::BlockId block, const world::RaycastHit& hit);
 
@@ -191,6 +193,9 @@ private:
     bool updateParticleMesh();
     void drawBlockParticles(VkCommandBuffer commandBuffer);
     void destroyParticleMesh();
+    bool updateFirstPersonBodyMesh();
+    void drawFirstPersonBody(VkCommandBuffer commandBuffer);
+    void destroyFirstPersonBodyMesh();
     bool ensureDynamicBuffer(BufferResource& resource, VkDeviceSize requiredSize, VkBufferUsageFlags usage);
     bool writeDynamicBuffer(BufferResource& resource, const void* data, VkDeviceSize size);
 
@@ -237,8 +242,10 @@ private:
     game::inventory::Inventory inventory_;
     game::mining::MiningSystem mining_;
     game::mining::MiningCadence miningCadence_;
+    game::interaction::MiningSwing miningSwing_;
     game::drops::DropSystem drops_;
     game::particles::ParticleSystem particles_;
+    game::audio::AudioEventQueue audioEvents_;
     core::settings::GameSettings settings_{};
     std::map<world::BlockId, std::size_t> microHarvestCells_;
     std::optional<world::BlockCoord> currentMiningTarget_;
@@ -289,6 +296,9 @@ private:
     BufferResource particleVertices_{};
     BufferResource particleIndices_{};
     std::uint32_t particleIndexCount_{};
+    BufferResource firstPersonVertices_{};
+    BufferResource firstPersonIndices_{};
+    std::uint32_t firstPersonIndexCount_{};
 
     std::chrono::steady_clock::time_point startTime_{};
     std::chrono::steady_clock::time_point lastFrameTime_{};
