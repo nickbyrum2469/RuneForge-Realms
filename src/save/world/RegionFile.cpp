@@ -1,5 +1,6 @@
 #include "save/world/RegionFile.h"
 
+#include "save/TransactionalFileReplace.h"
 #include "world/chunks/ChunkCoord.h"
 
 #include <fstream>
@@ -11,17 +12,6 @@ namespace rf::save::worldstore {
 namespace {
 constexpr const char* signature = "RUNEFORGE_REGION";
 constexpr int schemaVersion = 1;
-
-bool replaceFile(const std::filesystem::path& temporary, const std::filesystem::path& destination) {
-    std::error_code ec;
-    std::filesystem::rename(temporary, destination, ec);
-    if (!ec) return true;
-    ec.clear();
-    std::filesystem::remove(destination, ec);
-    ec.clear();
-    std::filesystem::rename(temporary, destination, ec);
-    return !ec;
-}
 } // namespace
 
 RegionCoord RegionFile::regionForBlock(int blockX, int blockZ) noexcept {
@@ -46,7 +36,7 @@ bool RegionFile::writeOne(const std::filesystem::path& path, RegionCoord coord,
     output.flush();
     if (!output) return false;
     output.close();
-    return replaceFile(temporary, path);
+    return rf::save::detail::replaceFileRollbackSafe(temporary, path);
 }
 
 bool RegionFile::writeAll(const std::filesystem::path& directory,
