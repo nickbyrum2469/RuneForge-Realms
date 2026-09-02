@@ -216,14 +216,17 @@ void VulkanRenderer::saveNow() {
 }
 
 void VulkanRenderer::updateMining(float deltaSeconds) {
+    const auto feet = player_.position();
     const auto eye = player_.eyePosition();
     const auto forward = player_.lookDirection();
     const auto right = cameraRight(forward);
     const auto up = cameraUp(forward, right);
 
     constexpr float acquisitionReach = game::interaction::MiningSwing::fistReach + 0.04f;
-    const auto target = world_.raycast(eye.x, eye.y, eye.z,
-                                       forward.x, forward.y, forward.z, acquisitionReach);
+    auto target = world_.raycast(eye.x, eye.y, eye.z,
+                                 forward.x, forward.y, forward.z, acquisitionReach);
+    if (target.hit && target.block.y <= 0) target = {};
+
     const world::BlockId block = target.hit
         ? world_.getBlock(target.block.x, target.block.y, target.block.z)
         : world::BlockId::Air;
@@ -231,15 +234,18 @@ void VulkanRenderer::updateMining(float deltaSeconds) {
         ? 0.45f
         : game::mining::MiningSystem::strikeInterval(block);
 
-    const bool canBeginSwing = !miningSwing_.active() && target.hit && target.block.y > 0;
+    // A mouse press owns the swing. Camera raycast only nominates an intended contact point; it is
+    // never allowed to decide whether the embodied arm can animate or whether terrain takes damage.
+    const bool canBeginSwing = !miningSwing_.active();
     const bool cadenceReady = miningCadence_.update(deltaSeconds, interval, canBeginSwing);
     if (canBeginSwing && cadenceReady) {
         const float swingDuration = std::clamp(interval * 0.90f, 0.38f, 0.92f);
-        (void)miningSwing_.begin(target, eye, forward, right, up, swingDuration);
+        (void)miningSwing_.begin(target, feet, player_.crouching(), eye, forward, right, up, swingDuration);
     }
 
     if (miningSwing_.active()) {
-        if (const auto contact = miningSwing_.update(deltaSeconds, world_, eye, forward, right, up)) {
+        if (const auto contact = miningSwing_.update(deltaSeconds, world_, feet, player_.crouching(),
+                                                     eye, forward, right, up)) {
             applyMiningContact(contact->hit);
         }
     }

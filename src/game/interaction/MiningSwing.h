@@ -1,6 +1,7 @@
 #pragma once
 
 #include "game/Math.h"
+#include "game/character/PlayerBodyRig.h"
 #include "world/WorldEdit.h"
 
 #include <optional>
@@ -13,9 +14,8 @@ struct SwingPose {
     bool active{false};
     bool contactMade{false};
     float normalizedTime{};
-    Vec3 shoulder{};
-    Vec3 elbow{};
-    Vec3 hand{};
+    character::ArmPose rightArm{};
+    Vec3 desiredHand{};
 };
 
 struct SwingContact {
@@ -24,25 +24,65 @@ struct SwingContact {
 
 class MiningSwing {
 public:
+    // Camera nomination may reach farther than the arm. The body rig clamps the actual fist to its
+    // fixed upper-arm/forearm lengths, and only the physical fist sweep can produce contact.
     static constexpr float fistReach = 1.72f;
     static constexpr float fistRadius = 0.11f;
 
     void reset() noexcept;
-    [[nodiscard]] bool begin(const world::RaycastHit& target, Vec3 eye, Vec3 forward, Vec3 right, Vec3 up,
+    [[nodiscard]] bool begin(const world::RaycastHit& target,
+                             Vec3 feet,
+                             bool crouching,
+                             Vec3 eye,
+                             Vec3 forward,
+                             Vec3 right,
+                             Vec3 up,
                              float durationSeconds) noexcept;
-    [[nodiscard]] std::optional<SwingContact> update(float deltaSeconds, const world::FrontierWorld& world,
-                                                     Vec3 eye, Vec3 forward, Vec3 right, Vec3 up) noexcept;
+    // Compatibility entry point for callers that do not yet supply root/crouch state.
+    // New gameplay code should use the explicit body-root overload above.
+    [[nodiscard]] bool begin(const world::RaycastHit& target,
+                             Vec3 eye,
+                             Vec3 forward,
+                             Vec3 right,
+                             Vec3 up,
+                             float durationSeconds) noexcept;
+    [[nodiscard]] std::optional<SwingContact> update(float deltaSeconds,
+                                                     const world::FrontierWorld& world,
+                                                     Vec3 feet,
+                                                     bool crouching,
+                                                     Vec3 eye,
+                                                     Vec3 forward,
+                                                     Vec3 right,
+                                                     Vec3 up) noexcept;
+    [[nodiscard]] std::optional<SwingContact> update(float deltaSeconds,
+                                                     const world::FrontierWorld& world,
+                                                     Vec3 eye,
+                                                     Vec3 forward,
+                                                     Vec3 right,
+                                                     Vec3 up) noexcept;
 
     [[nodiscard]] bool active() const noexcept { return active_; }
     [[nodiscard]] bool contactMade() const noexcept { return contactMade_; }
     [[nodiscard]] const SwingPose& pose() const noexcept { return pose_; }
     [[nodiscard]] std::optional<world::BlockCoord> lockedBlock() const noexcept {
-        return active_ ? std::optional<world::BlockCoord>{target_.block} : std::nullopt;
+        return active_ && target_.hit ? std::optional<world::BlockCoord>{target_.block} : std::nullopt;
     }
 
 private:
-    [[nodiscard]] Vec3 calculateHand(float t, Vec3 eye, Vec3 forward, Vec3 right, Vec3 up) const noexcept;
-    void updatePose(float t, Vec3 eye, Vec3 forward, Vec3 right, Vec3 up) noexcept;
+    [[nodiscard]] Vec3 calculateDesiredHand(float t,
+                                            Vec3 feet,
+                                            bool crouching,
+                                            Vec3 eye,
+                                            Vec3 forward,
+                                            Vec3 right,
+                                            Vec3 up) const noexcept;
+    void updatePose(float t,
+                    Vec3 feet,
+                    bool crouching,
+                    Vec3 eye,
+                    Vec3 forward,
+                    Vec3 right,
+                    Vec3 up) noexcept;
 
     bool active_{false};
     bool contactMade_{false};

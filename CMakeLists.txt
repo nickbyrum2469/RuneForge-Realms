@@ -28,6 +28,7 @@ add_library(runeforge_core STATIC
     src/world/growth/GrassGrowth.cpp
     src/world/FrontierWorld.cpp
     src/game/PlayerController.cpp
+    src/game/character/PlayerBodyRig.cpp
     src/game/audio/AudioEventQueue.cpp
     src/game/inventory/Inventory.cpp
     src/game/drops/DropSystem.cpp
@@ -39,6 +40,7 @@ add_library(runeforge_core STATIC
     src/render/scene/ChunkCulling.cpp
     src/render/scene/DropMeshBuilder.cpp
     src/render/scene/ParticleMeshBuilder.cpp
+    src/render/scene/VoxelCharacterBuilder.cpp
     src/render/scene/FirstPersonBodyBuilder.cpp
     src/save/FrontierSave.cpp
     src/save/world/RegionFile.cpp
@@ -237,6 +239,7 @@ if(RF_BUILD_TESTS)
         tests/TestInventoryGrowth.cpp
         tests/TestDrops.cpp
         tests/TestPolishFoundation.cpp
+        tests/TestCharacterRig.cpp
     )
     target_link_libraries(runeforge_core_tests PRIVATE runeforge_core)
     add_test(NAME runeforge_core_tests COMMAND runeforge_core_tests)

@@ -6,10 +6,15 @@
 
 namespace rf::render::scene {
 
-class FirstPersonBodyBuilder {
+struct CharacterBuildOptions {
+    bool includeHead{true};
+};
+
+class VoxelCharacterBuilder {
 public:
     [[nodiscard]] static world::VoxelMesh build(const game::character::PlayerBodyPose& pose,
-                                                const game::character::CharacterAppearance& appearance = {});
+                                                const game::character::CharacterAppearance& appearance = {},
+                                                CharacterBuildOptions options = {});
 };
 
 } // namespace rf::render::scene

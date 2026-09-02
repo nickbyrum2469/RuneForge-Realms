@@ -9,3 +9,4 @@ void runMicroMiningTests();
 void runInventoryGrowthTests();
 void runDropTests();
 void runPolishFoundationTests();
+void runCharacterRigTests();

@@ -23,6 +23,7 @@ public:
     [[nodiscard]] float yaw() const noexcept { return yaw_; }
     [[nodiscard]] float pitch() const noexcept { return pitch_; }
     [[nodiscard]] bool grounded() const noexcept { return grounded_; }
+    [[nodiscard]] bool crouching() const noexcept { return crouch_; }
     [[nodiscard]] float bodyWidth() const noexcept { return crouch_ ? 0.58f : 0.62f; }
     [[nodiscard]] float bodyHeight() const noexcept { return crouch_ ? 1.25f : 1.80f; }
     [[nodiscard]] float eyeHeight() const noexcept { return crouch_ ? 1.10f : 1.62f; }

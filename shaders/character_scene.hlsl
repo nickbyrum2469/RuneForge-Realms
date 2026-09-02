@@ -45,25 +45,40 @@ float4 PSCharacter(VSOutput input) : SV_Target0 {
     float roughness = 0.80;
     float metallic = 0.0;
 
-    if (material == 11u) { // warm stylized skin
-        albedo = lerp(float3(0.56,0.29,0.16), float3(0.86,0.57,0.34), fine * 0.26 + 0.56);
-        roughness = 0.67;
-    } else if (material == 12u) { // blue tunic / cloth
+    if (material == 11u) { // warm peach/tan voxel skin
+        const float pore = fine * 0.22 + medium * 0.12;
+        albedo = lerp(float3(0.61,0.32,0.18), float3(0.94,0.68,0.45), saturate(0.50 + pore));
+        roughness = 0.69;
+    } else if (material == 12u) { // blue tunic / cloth gear
         const float weave = abs(frac((input.worldPosition.x + input.worldPosition.y) * 30.0) - 0.5);
         albedo = lerp(float3(0.025,0.105,0.20), float3(0.075,0.31,0.55), medium * 0.62 + 0.20);
         albedo *= lerp(0.90, 1.06, smoothstep(0.22,0.48,weave));
         roughness = 0.94;
-    } else if (material == 13u) { // worn leather
+    } else if (material == 13u) { // worn leather / belt gear
         const float scuff = smoothstep(0.70,0.93,fine);
         albedo = lerp(float3(0.105,0.048,0.018), float3(0.39,0.19,0.055), medium * 0.72 + 0.18);
         albedo = lerp(albedo, float3(0.50,0.30,0.13), scuff * 0.20);
         roughness = 0.82;
-    } else if (material == 14u) { // chipped dark steel
+    } else if (material == 14u) { // chipped dark steel gear
         const float edgeFleck = smoothstep(0.76,0.96,fine);
         albedo = lerp(float3(0.085,0.095,0.11), float3(0.29,0.32,0.34), medium * 0.48 + 0.18);
         albedo = lerp(albedo, float3(0.54,0.49,0.39), edgeFleck * 0.22);
         roughness = 0.39;
         metallic = 0.72;
+    } else if (material == 15u) { // chunky dark-brown hair from the reference hero
+        const float strand = noise3(input.worldPosition * 35.0 + 7.0);
+        albedo = lerp(float3(0.055,0.020,0.008), float3(0.24,0.095,0.028), medium * 0.62 + strand * 0.18);
+        roughness = 0.88;
+    } else if (material == 16u) { // warm eye white
+        albedo = float3(0.90,0.88,0.79);
+        roughness = 0.48;
+    } else if (material == 17u) { // saturated blue iris
+        albedo = lerp(float3(0.015,0.20,0.48), float3(0.04,0.58,0.96), fine * 0.45 + 0.42);
+        roughness = 0.26;
+    } else if (material == 18u) { // minimal rough survival loincloth
+        const float fiber = noise3(input.worldPosition * 28.0 + 19.0);
+        albedo = lerp(float3(0.105,0.075,0.020), float3(0.28,0.22,0.055), medium * 0.58 + fiber * 0.18);
+        roughness = 0.96;
     }
 
     const float3 n = normalize(input.normal);
