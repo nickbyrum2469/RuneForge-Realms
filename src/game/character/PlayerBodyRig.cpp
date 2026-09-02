@@ -161,13 +161,15 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
     const Vec3 leftShoulder = pose.chest - pose.right * 0.315f + torsoDirection * 0.020f +
                               pose.forward * shoulderTwist;
 
-    // Arms counter-swing against the legs while preserving the exact fixed two-bone lengths. The
-    // motion is deliberately compact so the heavy voxel hero feels planted instead of rubbery.
+    // The turnaround reference has long relaxed arms that hang beside the upper thighs rather than
+    // stopping almost level with the pelvis. Lower the rest targets while keeping a slight forward
+    // bias so the large hands stay readable from front/3/4 views. The fixed-length arm solver still
+    // owns the anatomy, so this changes pose/silhouette without stretching either arm segment.
     const float armSwing = walk * locomotion * 0.105f;
-    const Vec3 rightRestHand = pose.pelvis + pose.right * 0.325f + pose.forward * (0.045f - armSwing) -
-                               pose.up * 0.075f;
-    const Vec3 leftRestHand = pose.pelvis - pose.right * 0.325f + pose.forward * (0.040f + armSwing) -
-                              pose.up * 0.075f;
+    const Vec3 rightRestHand = pose.pelvis + pose.right * 0.330f + pose.forward * (0.050f - armSwing) -
+                               pose.up * 0.190f;
+    const Vec3 leftRestHand = pose.pelvis - pose.right * 0.330f + pose.forward * (0.045f + armSwing) -
+                              pose.up * 0.190f;
     const Vec3 rightDesired = rightHandTarget ? *rightHandTarget : rightRestHand;
     const Vec3 leftDesired = leftHandTarget ? *leftHandTarget : leftRestHand;
 
