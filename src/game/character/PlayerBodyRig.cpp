@@ -203,20 +203,21 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
     const Vec3 rightHip = pose.pelvis + pose.right * 0.135f + pose.forward * hipTwist;
     const Vec3 leftHip = pose.pelvis - pose.right * 0.135f - pose.forward * hipTwist;
     const float crouchFootSpread = crouch * 0.045f;
-    const float stepTravel = locomotion * footStrideHalfTravel;
     const float rightLift = locomotion * std::max(walk, 0.0f) * 0.052f;
     const float leftLift = locomotion * std::max(-walk, 0.0f) * 0.052f;
 
-    // Match ankle travel to the distance-driven gait phase so the stance foot moves backward against
-    // root translation instead of riding forward with the actor. At mid-stance this cancels ~94% of
-    // root motion, a measurable reduction in foot skating, while the fixed two-bone solver still owns
-    // the exact 0.42 m thigh and 0.40 m shin lengths.
+    // Keep the prior 0.195 m stride amplitude, but use a stance-aware path instead of sin(phase).
+    // During the grounded half-cycle each ankle now moves monotonically front -> rear while the root
+    // advances. The old sinusoid reversed direction during late stance, visibly scrubbing the planted
+    // foot forward before toe-off. Recovery remains eased while that foot is lifted.
     constexpr float referenceAnkleHalfSpan = 0.165f;
+    const float rightTravel = locomotion * rightFootTravel(motion ? motion->locomotionPhase : 0.0f);
+    const float leftTravel = locomotion * leftFootTravel(motion ? motion->locomotionPhase : 0.0f);
     const Vec3 rightAnkle = feet + pose.right * (referenceAnkleHalfSpan + crouchFootSpread) +
-                            pose.forward * (crouch * 0.09f + walk * stepTravel) +
+                            pose.forward * (crouch * 0.09f + rightTravel) +
                             pose.up * (0.075f + rightLift);
     const Vec3 leftAnkle = feet - pose.right * (referenceAnkleHalfSpan + crouchFootSpread) +
-                           pose.forward * (crouch * 0.09f - walk * stepTravel) +
+                           pose.forward * (crouch * 0.09f + leftTravel) +
                            pose.up * (0.075f + leftLift);
     pose.rightLeg = solveLeg(rightHip, rightAnkle, pose.forward, pose.right, true);
     pose.leftLeg = solveLeg(leftHip, leftAnkle, pose.forward, pose.right, false);
