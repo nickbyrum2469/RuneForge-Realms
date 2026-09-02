@@ -28,6 +28,7 @@ void FrontierWorld::generate(std::uint32_t seed) {
     worldAgeSeconds_ = 0.0f;
     growthEpoch_ = 0;
     chunks_.clear();
+    waterSimulation_.reset();
     editsByChunk_.clear();
     microByChunk_.clear();
     recentlyUnloaded_.clear();
@@ -60,17 +61,25 @@ bool FrontierWorld::updateStreaming(float worldX, float worldZ) {
     }
     for (const ChunkCoord coord : delta.unloaded) markAdjacentChunksDirty(coord);
 
+    // Dynamic fluid bookkeeping follows the retained chunk window. Stable generated lakes have no
+    // per-cell simulation state, so trimming here keeps long-distance travel memory bounded.
+    waterSimulation_.trim(center, streamingRetainRadius + 1);
     recentlyUnloaded_.insert(recentlyUnloaded_.end(), delta.unloaded.begin(), delta.unloaded.end());
     return delta.changed();
 }
 
 bool FrontierWorld::advanceSimulation(float deltaSeconds) {
-    worldAgeSeconds_ += std::clamp(deltaSeconds, 0.0f, 0.25f);
+    const float dt = std::clamp(deltaSeconds, 0.0f, 0.25f);
+    worldAgeSeconds_ += dt;
+    bool changed = waterSimulation_.update(dt, *this);
+
     const auto epoch = static_cast<std::uint32_t>(worldAgeSeconds_ / growth::GrassGrowth::growthStepSeconds);
-    if (epoch == growthEpoch_) return false;
-    growthEpoch_ = epoch;
-    markAllLoadedDirty();
-    return true;
+    if (epoch != growthEpoch_) {
+        growthEpoch_ = epoch;
+        markAllLoadedDirty();
+        changed = true;
+    }
+    return changed;
 }
 
 void FrontierWorld::setWorldAgeSeconds(float value) noexcept {
@@ -85,7 +94,11 @@ void FrontierWorld::applyStoredEditsToChunk(ChunkCoord coord) {
     if (stored == editsByChunk_.end()) return;
     for (const auto& [position, block] : stored->second) {
         if (position.y < 0 || position.y >= VoxelChunk::sizeY) continue;
-        chunk->set(localBlockX(position.x), position.y, localBlockZ(position.z), block);
+        const int localX = localBlockX(position.x);
+        const int localZ = localBlockZ(position.z);
+        const BlockId previous = chunk->get(localX, position.y, localZ);
+        chunk->set(localX, position.y, localZ, block);
+        waterSimulation_.onExternalBlockChange(position, previous, block);
     }
 }
 
@@ -132,6 +145,7 @@ bool FrontierWorld::setBlock(int x, int y, int z, BlockId block, bool recordEdit
     if (y < 0 || y >= VoxelChunk::sizeY) return false;
     const BlockCoord position{x, y, z};
     const ChunkCoord coord = chunkFromBlock(x, z);
+    const BlockId previousLoaded = getBlock(x, y, z);
     if (recordEdit) editsByChunk_[coord][position] = block;
 
     bool hadMicro = false;
@@ -141,7 +155,10 @@ bool FrontierWorld::setBlock(int x, int y, int z, BlockId block, bool recordEdit
     }
 
     VoxelChunk* chunk = chunks_.find(coord);
-    if (!chunk) return recordEdit || hadMicro;
+    if (!chunk) {
+        if (recordEdit) waterSimulation_.onExternalBlockChange(position, previousLoaded, block);
+        return recordEdit || hadMicro;
+    }
 
     const int localX = localBlockX(x);
     const int localZ = localBlockZ(z);
@@ -149,6 +166,7 @@ bool FrontierWorld::setBlock(int x, int y, int z, BlockId block, bool recordEdit
     if (previous == block && !hadMicro) return false;
     chunk->set(localX, y, localZ, block);
     markMeshNeighborhoodDirty(coord, localX, localZ);
+    if (recordEdit) waterSimulation_.onExternalBlockChange(position, previous, block);
     return true;
 }
 
@@ -298,9 +316,6 @@ std::optional<ChunkMeshingSnapshot> FrontierWorld::chunkMeshingSnapshot(ChunkCoo
     snapshot.worldOriginX = coord.x * VoxelChunk::sizeX;
     snapshot.worldOriginZ = coord.z * VoxelChunk::sizeZ;
 
-    // A damaged block and its direct solid neighbors are meshed at the same 8^3 physical
-    // resolution. The intact neighbors are temporary full masks, not persistent state. This
-    // prevents boundary cracks and avoids a visual resolution jump when the first chip lands.
     std::set<BlockCoord> candidates;
     constexpr std::array<BlockCoord, 7> offsets{{
         {0, 0, 0}, {-1, 0, 0}, {1, 0, 0}, {0, -1, 0},
@@ -418,8 +433,10 @@ void FrontierWorld::applyEdit(const BlockEdit& edit) {
     if (!chunk) return;
     const int localX = localBlockX(edit.position.x);
     const int localZ = localBlockZ(edit.position.z);
+    const BlockId previous = chunk->get(localX, edit.position.y, localZ);
     chunk->set(localX, edit.position.y, localZ, edit.block);
     markMeshNeighborhoodDirty(coord, localX, localZ);
+    waterSimulation_.onExternalBlockChange(edit.position, previous, edit.block);
 }
 
 std::vector<micro::MicroVoxelEdit> FrontierWorld::microEdits() const {
