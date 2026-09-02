@@ -32,25 +32,29 @@ GrowthNode GrassGrowth::sample(std::uint32_t worldSeed, BlockCoord block,
     if (nodeX < 0 || nodeZ < 0 || nodeX >= nodeResolution || nodeZ >= nodeResolution) return node;
 
     const std::uint32_t h = hashNode(worldSeed, block, nodeX, nodeZ);
-    // Reference grass is patchy, not a full 8x8 carpet. About 27% of eligible nodes exist before LOD.
-    node.present = unit(h) > 0.73f;
+
+    // The 0.5.2 turf looked sparse and could appear to "grow" only after a mining remesh because a
+    // large portion of candidate nodes started at stage zero. Grass is now part of the authored
+    // surface silhouette: a deterministic majority of nodes exist immediately when the chunk loads.
+    // Random-tick age may mature a tuft slightly, but player input can never create or reveal it.
+    node.present = unit(h) > 0.43f; // ~57% of the 8x8 node field before distance LOD.
     if (!node.present) return node;
 
-    // Quantize simulation time before sampling. A mining remesh between vegetation ticks therefore
-    // produces the exact same grass state and can never make a plant grow just because the user clicked.
     const float tickAge = std::floor(std::max(worldAgeSeconds, 0.0f) / growthStepSeconds) * growthStepSeconds;
-    const float initialAge = unit(h >> 7) * 76.0f;
-    const float nodeStep = 18.0f + unit(h >> 13) * 30.0f;
-    const int maxStage = 1 + static_cast<int>((h >> 19) % 4u);
-    const int stage = std::clamp(static_cast<int>((tickAge + initialAge) / nodeStep), 0, maxStage);
+    const int baseStage = 2 + static_cast<int>((h >> 18) & 1u); // Every visible tuft starts established.
+    const int maxStage = 3 + static_cast<int>((h >> 22) & 1u);
+    const float matureAfter = 48.0f + unit(h >> 9) * 96.0f;
+    const int ageBonus = tickAge >= matureAfter ? 1 : 0;
+    const int stage = std::clamp(baseStage + ageBonus, 2, maxStage);
+
     node.stage = static_cast<std::uint8_t>(stage);
-    if (stage == 0) return node;
+    node.height = 0.052f + static_cast<float>(stage) * 0.022f + unit(h >> 15) * 0.030f;
+    node.width = 0.020f + unit(h >> 21) * 0.016f;
 
-    node.height = 0.025f + static_cast<float>(stage) * 0.026f + unit(h >> 16) * 0.020f;
-    node.width = 0.014f + unit(h >> 21) * 0.016f;
-
-    if (stage >= 3 && maxStage >= 3) {
-        const std::uint32_t flowerRoll = (h >> 4) % 71u;
+    // Flowers stay uncommon accents. They are deterministic from seed and do not pop into existence
+    // because the player happens to punch or remesh a nearby block.
+    if (stage >= 3) {
+        const std::uint32_t flowerRoll = (h >> 4) % 97u;
         if (flowerRoll == 0u) node.flower = FlowerType::White;
         else if (flowerRoll == 1u) node.flower = FlowerType::Yellow;
         else if (flowerRoll == 2u && stage >= 4) node.flower = FlowerType::Blue;
