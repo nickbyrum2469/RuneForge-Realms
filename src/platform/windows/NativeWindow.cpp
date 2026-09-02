@@ -119,14 +119,20 @@ bool NativeWindow::createUiOverlay() {
     GetClientRect(hwnd_, &client);
     const int width = std::max<LONG>(client.right - client.left, 1);
     const int height = std::max<LONG>(client.bottom - client.top, 1);
+
+    // IMPORTANT: this must be an owned top-level popup, not WS_CHILD. On the real AMD/Vulkan
+    // machine a child Direct2D HwndRenderTarget could own input/state yet never visibly composite
+    // above the Vulkan swapchain. An owned popup gives DWM two independent top-level surfaces while
+    // keeping the modal attached to/minimized with the game window.
     uiOverlayHwnd_ = CreateWindowExW(
-        WS_EX_NOPARENTNOTIFY,
+        WS_EX_TOOLWINDOW,
         overlayWindowClass,
         L"RuneForge Native UI Overlay",
-        WS_CHILD | WS_CLIPSIBLINGS,
+        WS_POPUP | WS_CLIPCHILDREN,
         0, 0, width, height,
         hwnd_, nullptr, instance_, this);
     if (!uiOverlayHwnd_) return false;
+    resizeUiOverlay(static_cast<unsigned>(width), static_cast<unsigned>(height));
     ShowWindow(uiOverlayHwnd_, SW_HIDE);
     return true;
 }
@@ -176,6 +182,15 @@ LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
     switch (message) {
         case WM_ERASEBKGND:
             return 1;
+
+        case WM_MOVE:
+            if (uiOverlayHwnd_ && uiState_.nativeOverlayVisible()) {
+                RECT client{};
+                GetClientRect(hwnd_, &client);
+                resizeUiOverlay(static_cast<unsigned>(std::max<LONG>(client.right - client.left, 1)),
+                                static_cast<unsigned>(std::max<LONG>(client.bottom - client.top, 1)));
+            }
+            return 0;
 
         case WM_SIZE: {
             const unsigned width = std::max<unsigned>(LOWORD(lParam), 1u);
@@ -324,29 +339,55 @@ void NativeWindow::drawActiveOverlay() {
 }
 
 void NativeWindow::resizeUiOverlay(unsigned width, unsigned height) {
-    width = std::max(width, 1u);
-    height = std::max(height, 1u);
-    if (uiOverlayHwnd_) MoveWindow(uiOverlayHwnd_, 0, 0, static_cast<int>(width), static_cast<int>(height), TRUE);
-    if (inventoryPainter_) inventoryPainter_->resize(width, height);
-    if (pausePainter_) pausePainter_->resize(width, height);
-    if (settingsPainter_) settingsPainter_->resize(width, height);
+    if (!uiOverlayHwnd_ || !hwnd_) return;
+
+    RECT client{};
+    GetClientRect(hwnd_, &client);
+    POINT topLeft{client.left, client.top};
+    POINT bottomRight{client.right, client.bottom};
+    ClientToScreen(hwnd_, &topLeft);
+    ClientToScreen(hwnd_, &bottomRight);
+
+    const unsigned actualWidth = static_cast<unsigned>(std::max<LONG>(bottomRight.x - topLeft.x, 1));
+    const unsigned actualHeight = static_cast<unsigned>(std::max<LONG>(bottomRight.y - topLeft.y, 1));
+    (void)width;
+    (void)height;
+
+    SetWindowPos(uiOverlayHwnd_, HWND_TOP,
+                 topLeft.x, topLeft.y,
+                 static_cast<int>(actualWidth), static_cast<int>(actualHeight),
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    if (inventoryPainter_) inventoryPainter_->resize(actualWidth, actualHeight);
+    if (pausePainter_) pausePainter_->resize(actualWidth, actualHeight);
+    if (settingsPainter_) settingsPainter_->resize(actualWidth, actualHeight);
 }
 
 void NativeWindow::showUiOverlay() {
-    if (!uiOverlayHwnd_) return;
+    if (!uiOverlayHwnd_ || !hwnd_) return;
     RECT client{};
     GetClientRect(hwnd_, &client);
     resizeUiOverlay(static_cast<unsigned>(std::max<LONG>(client.right - client.left, 1)),
                     static_cast<unsigned>(std::max<LONG>(client.bottom - client.top, 1)));
-    ShowWindow(uiOverlayHwnd_, SW_SHOW);
-    SetWindowPos(uiOverlayHwnd_, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+
+    ShowWindow(uiOverlayHwnd_, SW_SHOWNORMAL);
+    SetWindowPos(uiOverlayHwnd_, HWND_TOP, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+    SetActiveWindow(uiOverlayHwnd_);
     SetFocus(uiOverlayHwnd_);
-    InvalidateRect(uiOverlayHwnd_, nullptr, FALSE);
+
+    // Force the first D2D frame now. Waiting for a later incidental paint was precisely how a modal
+    // could be logically active while the last Vulkan image remained all the user saw.
+    InvalidateRect(uiOverlayHwnd_, nullptr, TRUE);
+    RedrawWindow(uiOverlayHwnd_, nullptr, nullptr,
+                 RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW | RDW_ALLCHILDREN);
 }
 
 void NativeWindow::hideUiOverlay() {
     if (uiOverlayHwnd_) ShowWindow(uiOverlayHwnd_, SW_HIDE);
-    if (hwnd_) SetFocus(hwnd_);
+    if (hwnd_) {
+        SetActiveWindow(hwnd_);
+        SetFocus(hwnd_);
+    }
 }
 
 void NativeWindow::syncInteractionState() {

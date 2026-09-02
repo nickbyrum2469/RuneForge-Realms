@@ -164,9 +164,11 @@ Vec3 animatedRightHand(const FirstPersonViewModelState& state,
 
     const float t = std::clamp(state.swingTime, 0.0f, 1.0f);
     const float targetRatio = std::clamp(state.targetDistance / 2.45f, 0.0f, 1.0f);
-    const float strikeDepth = 0.48f + targetRatio * 0.20f;
+    const float strikeDepth = 0.46f + targetRatio * 0.44f;
     const Vec3 windup = rest + right * 0.105f - up * 0.020f - forward * 0.070f;
-    const Vec3 strike = eye + forward * strikeDepth + right * 0.012f - up * 0.020f;
+    // At impact the visible knuckles sit exactly on the center camera ray. Distance changes only
+    // how far forward the hand travels; it never introduces a lower/side pseudo-impact.
+    const Vec3 strike = eye + forward * strikeDepth;
     const Vec3 follow = eye + forward * (strikeDepth + 0.045f) - right * 0.105f - up * 0.085f;
 
     if (t < 0.18f) {
