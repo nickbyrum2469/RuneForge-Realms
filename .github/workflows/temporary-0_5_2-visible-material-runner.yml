@@ -1,0 +1,28 @@
+name: Temporary 0.5.2 Visible Material Runner
+
+on:
+  push:
+    branches: [fix/frontier-camera-reach-visuals-0.5.2]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/frontier-camera-reach-visuals-0.5.2
+          fetch-depth: 0
+      - name: Apply visible material patch
+        run: python3 tools/apply_0_5_2_visible_material_patch.py
+      - name: Commit patched sources
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add shaders/voxel_scene.hlsl src/render/vulkan/VulkanRenderer.cpp
+          git commit -m "fix: rebuild visible stone bark wood and leaf materials [material-patch]"
+          git push origin HEAD:fix/frontier-camera-reach-visuals-0.5.2
