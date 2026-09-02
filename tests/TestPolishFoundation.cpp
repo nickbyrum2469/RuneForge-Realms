@@ -1,5 +1,6 @@
 #include "TestSuites.h"
 
+#include "app/UiState.h"
 #include "core/settings/GameSettings.h"
 #include "game/Math.h"
 #include "game/interaction/MiningSwing.h"
@@ -17,6 +18,52 @@
 
 void runPolishFoundationTests() {
     using namespace rf;
+
+    // Modal state is the single authority for gameplay input, renderer pause and mouse ownership.
+    // This prevents an invisible menu from consuming input while gameplay still appears active.
+    app::UiState uiState;
+    assert(uiState.screen() == app::UiScreen::Hub);
+    assert(!uiState.gameplayInputAllowed());
+    assert(!uiState.mouseShouldBeCaptured());
+    assert(!uiState.nativeOverlayVisible());
+
+    assert(uiState.enterGameplay());
+    assert(uiState.gameplayInputAllowed());
+    assert(uiState.mouseShouldBeCaptured());
+    assert(!uiState.rendererShouldBePaused());
+    assert(!uiState.nativeOverlayVisible());
+
+    assert(uiState.openPause());
+    assert(uiState.screen() == app::UiScreen::Pause);
+    assert(uiState.rendererShouldBePaused());
+    assert(!uiState.gameplayInputAllowed());
+    assert(!uiState.mouseShouldBeCaptured());
+    assert(uiState.nativeOverlayVisible());
+
+    assert(uiState.openSettings());
+    assert(uiState.screen() == app::UiScreen::Settings);
+    assert(uiState.settingsReturnScreen() == app::UiScreen::Pause);
+    assert(uiState.rendererShouldBePaused());
+    assert(uiState.nativeOverlayVisible());
+    assert(uiState.closeSettings());
+    assert(uiState.screen() == app::UiScreen::Pause);
+    assert(uiState.closePause());
+    assert(uiState.screen() == app::UiScreen::Gameplay);
+
+    assert(uiState.openInventory());
+    assert(uiState.screen() == app::UiScreen::Inventory);
+    assert(uiState.rendererShouldBePaused());
+    assert(uiState.nativeOverlayVisible());
+    assert(!uiState.openPause()); // A visible modal cannot silently stack another modal behind itself.
+    assert(uiState.closeInventory());
+    assert(uiState.screen() == app::UiScreen::Gameplay);
+
+    uiState.returnToHub();
+    assert(uiState.openSettings());
+    assert(uiState.settingsReturnScreen() == app::UiScreen::Hub);
+    assert(uiState.closeSettings());
+    assert(uiState.screen() == app::UiScreen::Hub);
+    assert(!uiState.nativeOverlayVisible());
 
     // CPU interaction/body math must use the same handed camera basis as the HLSL view transform:
     // up = normalize(cross(forward, right)). This guards pitch-angle drift between the visible fist
