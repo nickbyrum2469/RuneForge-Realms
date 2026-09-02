@@ -40,8 +40,8 @@ jobs:
         shell: pwsh
         run: |
           git fetch --tags --force
-          $matchingTag = (git tag --list $env:TAG).Trim()
-          if ($matchingTag) {
+          $matchingTag = @(git tag --list $env:TAG)
+          if ($matchingTag.Count -gt 0) {
             $existing = (git rev-list -n 1 $env:TAG).Trim()
             if ($existing -ne $env:GITHUB_SHA) {
               throw "Version $env:VERSION is already published at $existing. Refusing to replace its assets with different code $env:GITHUB_SHA. Bump VERSION and the CMake project version before release."
