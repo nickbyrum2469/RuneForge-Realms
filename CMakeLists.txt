@@ -19,6 +19,7 @@ add_library(runeforge_core STATIC
     src/world/chunks/ChunkManager.cpp
     src/world/generation/TerrainGenerator.cpp
     src/world/blocks/BlockRegistry.cpp
+    src/world/fluid/WaterSimulation.cpp
     src/world/micro/MicroVoxelState.cpp
     src/world/micro/MicroVoxelEdit.cpp
     src/world/meshing/MicroVoxelMesher.cpp
