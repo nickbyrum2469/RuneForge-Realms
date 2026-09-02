@@ -9,6 +9,7 @@
 #include "game/inventory/Inventory.h"
 #include "game/mining/MiningCadence.h"
 #include "game/mining/MiningSystem.h"
+#include "game/particles/ParticleSystem.h"
 #include "world/FrontierWorld.h"
 #include "world/meshing/MicroDetailBuilder.h"
 
@@ -104,8 +105,6 @@ private:
         std::future<world::VoxelMesh> future;
     };
 
-    // Kept below Vulkan's guaranteed 128-byte push-constant minimum. Inventory entries are packed as
-    // itemId in bits 0..7 and stack count in bits 8..15 to keep the gameplay HUD data-driven.
     struct PushData {
         float time{};
         float aspect{16.0f / 9.0f};
@@ -189,6 +188,9 @@ private:
     bool updateDropMesh();
     void drawWorldDrops(VkCommandBuffer commandBuffer);
     void destroyDropMesh();
+    bool updateParticleMesh();
+    void drawBlockParticles(VkCommandBuffer commandBuffer);
+    void destroyParticleMesh();
     bool ensureDynamicBuffer(BufferResource& resource, VkDeviceSize requiredSize, VkBufferUsageFlags usage);
     bool writeDynamicBuffer(BufferResource& resource, const void* data, VkDeviceSize size);
 
@@ -236,6 +238,7 @@ private:
     game::mining::MiningSystem mining_;
     game::mining::MiningCadence miningCadence_;
     game::drops::DropSystem drops_;
+    game::particles::ParticleSystem particles_;
     core::settings::GameSettings settings_{};
     std::map<world::BlockId, std::size_t> microHarvestCells_;
     std::optional<world::BlockCoord> currentMiningTarget_;
@@ -283,6 +286,9 @@ private:
     BufferResource dropVertices_{};
     BufferResource dropIndices_{};
     std::uint32_t dropIndexCount_{};
+    BufferResource particleVertices_{};
+    BufferResource particleIndices_{};
+    std::uint32_t particleIndexCount_{};
 
     std::chrono::steady_clock::time_point startTime_{};
     std::chrono::steady_clock::time_point lastFrameTime_{};
