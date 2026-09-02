@@ -4,6 +4,7 @@
 
 #include "game/character/CharacterAppearance.h"
 #include "game/character/PlayerBodyRig.h"
+#include "render/scene/CharacterVoxelOrientation.h"
 #include "render/scene/FirstPersonBodyBuilder.h"
 #include "render/scene/VoxelCharacterBuilder.h"
 
@@ -55,6 +56,12 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
 
         const game::character::CharacterAppearance appearance{};
         mesh = scene::VoxelCharacterBuilder::build(bodyPose, appearance);
+
+        // Voxel centers already follow the articulated character pose, but VoxelCharacterBuilder's
+        // individual micro-cubes are emitted on the world XYZ basis. Rotate each cube around its own
+        // center into the same actor-local basis so 0/45/90-degree yaw all preserve the same clean
+        // body silhouette instead of turning the hero's pixels into world-aligned diamonds.
+        scene::orientCharacterVoxels(mesh, bodyPose);
     } else {
         scene::FirstPersonViewModelState state;
         state.eye = eye;
