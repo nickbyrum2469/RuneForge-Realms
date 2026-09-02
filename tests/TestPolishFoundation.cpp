@@ -3,7 +3,9 @@
 #include "core/settings/GameSettings.h"
 #include "game/mining/MiningCadence.h"
 #include "game/mining/MiningSystem.h"
+#include "game/particles/ParticleSystem.h"
 #include "world/Block.h"
+#include "world/FrontierWorld.h"
 #include "world/blocks/BlockRegistry.h"
 #include "world/generation/TerrainGenerator.h"
 
@@ -62,4 +64,17 @@ void runPolishFoundationTests() {
     }
     assert(sawWater);
     assert(sawDryLand);
+
+    // Physical feedback is bounded and material-aware. Fluids never emit block chips, while solid
+    // bursts are capped so sustained mining cannot turn into an unbounded CPU/GPU allocation.
+    world::FrontierWorld particleWorld;
+    particleWorld.generate(7331u);
+    game::particles::ParticleSystem particles;
+    particles.emitBlockBurst(world::BlockId::Water, {0.5f, 8.0f, 0.5f}, 50u);
+    assert(particles.size() == 0);
+    particles.emitBlockBurst(world::BlockId::Stone, {0.5f, 8.0f, 0.5f}, 1000u, 1.0f);
+    assert(particles.size() == game::particles::ParticleSystem::maxParticles);
+    for (const auto& particle : particles.particles()) assert(particle.block == world::BlockId::Stone);
+    for (int i = 0; i < 40; ++i) particles.update(0.05f, particleWorld);
+    assert(particles.size() == 0);
 }
