@@ -19,6 +19,14 @@ float distance(Vec3 a, Vec3 b) noexcept {
     return std::sqrt(lengthSquared(d));
 }
 
+void canonicalizeBasis(Vec3& forward, Vec3& right, Vec3& up) noexcept {
+    forward = normalized(forward);
+    right = normalized(right);
+    if (lengthSquared(right) <= 0.000001f) right = {1.0f, 0.0f, 0.0f};
+    up = normalized(cross(forward, right));
+    if (lengthSquared(up) <= 0.000001f) up = {0.0f, 1.0f, 0.0f};
+}
+
 } // namespace
 
 void MiningSwing::reset() noexcept {
@@ -36,6 +44,7 @@ bool MiningSwing::begin(const world::RaycastHit& target, Vec3 eye, Vec3 forward,
     if (active_ || !target.hit) return false;
     const Vec3 contact{target.worldX, target.worldY, target.worldZ};
     if (distance(eye, contact) > fistReach) return false;
+    canonicalizeBasis(forward, right, up);
 
     active_ = true;
     contactMade_ = false;
@@ -82,6 +91,7 @@ void MiningSwing::updatePose(float t, Vec3 eye, Vec3 forward, Vec3 right, Vec3 u
 std::optional<SwingContact> MiningSwing::update(float deltaSeconds, const world::FrontierWorld& world,
                                                 Vec3 eye, Vec3 forward, Vec3 right, Vec3 up) noexcept {
     if (!active_) return std::nullopt;
+    canonicalizeBasis(forward, right, up);
 
     const float previousT = std::clamp(elapsed_ / duration_, 0.0f, 1.0f);
     elapsed_ += std::clamp(deltaSeconds, 0.0f, 0.08f);
