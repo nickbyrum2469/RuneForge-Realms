@@ -61,6 +61,8 @@ public:
     [[nodiscard]] game::mining::MiningMode miningMode() const noexcept { return mining_.mode(); }
     [[nodiscard]] const std::vector<game::drops::WorldDrop>& worldDrops() const noexcept { return drops_.drops(); }
     [[nodiscard]] std::optional<world::BlockId> selectedPlacementBlock() const noexcept;
+    [[nodiscard]] game::Vec3 audioListenerPosition() const noexcept { return player_.eyePosition(); }
+    [[nodiscard]] std::vector<game::audio::AudioEvent> drainAudioEvents() { return audioEvents_.drain(); }
 
 private:
     struct QueueFamilies {
