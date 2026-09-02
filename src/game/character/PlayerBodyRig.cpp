@@ -146,8 +146,11 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
                                                 pose.up);
     pose.spine = pose.pelvis + torsoDirection * 0.245f;
     pose.chest = pose.spine + torsoDirection * 0.270f;
-    pose.neck = pose.chest + torsoDirection * 0.145f;
-    pose.head = pose.neck + torsoDirection * 0.155f;
+
+    // The reference head sits down into a short, thick neck instead of floating above the deltoids.
+    // Compact only this upper-neck stack: torso and articulated limb lengths stay exactly unchanged.
+    pose.neck = pose.chest + torsoDirection * 0.105f;
+    pose.head = pose.neck + torsoDirection * 0.125f;
 
     // The supplied hero reference reads as a pronounced V-taper: very broad deltoids/chest over a
     // compact pelvis. Keep that silhouette in the rig itself so locomotion cannot collapse it back
