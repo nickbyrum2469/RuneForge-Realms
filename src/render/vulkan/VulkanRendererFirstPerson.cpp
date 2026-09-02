@@ -3,6 +3,7 @@
 #include "render/vulkan/VulkanRenderer.h"
 
 #include "game/character/CharacterAppearance.h"
+#include "game/character/CharacterLocomotion.h"
 #include "game/character/PlayerBodyRig.h"
 #include "render/scene/CharacterVoxelOrientation.h"
 #include "render/scene/FirstPersonBodyBuilder.h"
@@ -38,10 +39,10 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
         game::character::BodyMotionState motion;
         const float speed = player_.actualHorizontalSpeed();
         motion.locomotionAmount = std::clamp(speed / 4.8f, 0.0f, 1.0f);
-        // Drive cadence from collision-resolved distance instead of wall-clock time. If the player
-        // pushes into a wall or movement is otherwise blocked, the gait freezes with the body rather
-        // than treadmill-walking in place; crouch/walk/sprint also naturally scale cadence by travel.
-        motion.locomotionPhase = player_.horizontalTravelDistance() * 1.90f;
+        // Drive cadence from collision-resolved distance instead of wall-clock time. The calibrated
+        // stride now completes once per ~1.31 m of actual travel, which keeps the planted phase much
+        // closer to world motion and removes the slow 3.31 m moonwalk cycle from the previous pass.
+        motion.locomotionPhase = game::character::locomotionPhaseFromDistance(player_.horizontalTravelDistance());
         motion.idlePhase = elapsed * 1.75f;
 
         // MiningSwing currently owns an exact fixed-length world-space right-arm pose. Freeze the
@@ -74,7 +75,7 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
 
         const float speed = player_.actualHorizontalSpeed();
         state.walkAmount = std::clamp(speed / 4.8f, 0.0f, 1.0f);
-        state.walkPhase = player_.horizontalTravelDistance() * 1.90f;
+        state.walkPhase = game::character::locomotionPhaseFromDistance(player_.horizontalTravelDistance());
 
         const auto& swing = miningSwing_.pose();
         state.swingActive = swing.active;
