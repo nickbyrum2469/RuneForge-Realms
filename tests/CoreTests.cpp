@@ -8,6 +8,7 @@ int main() {
     runWorldTests();
     runPersistenceTests();
     runCullingTests();
+    runMeshSchedulingTests();
     runMicroMiningTests();
     runInventoryGrowthTests();
     runDropTests();
