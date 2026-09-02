@@ -1,5 +1,7 @@
 # Frontier Realms — production roadmap after 0.5
 
+> **MANDATORY READ BEFORE IMPLEMENTATION:** `docs/RUNEFORGE_MASTER_DEVELOPMENT_PLAYBOOK.md` defines current real-hardware issues, file-placement/architecture rules, visual-quality requirements, Git/CI/release procedure, and the exact meaning of “done.” Any AI/agent using this roadmap must read and obey that playbook first. This roadmap defines major milestone dependency order; it does not override the playbook’s process/safety gates.
+
 This document turns the master feature plan into an implementation sequence for the next major native milestones. `FEATURE_MASTER_PLAN.md` remains feature authority; this file answers **what we build next, in what dependency order, and what must be true before each milestone ships**.
 
 The goal is not to chase a version number. Each milestone must make the flagship Frontier loop materially better while preserving the modular engine boundaries established through 0.5.
