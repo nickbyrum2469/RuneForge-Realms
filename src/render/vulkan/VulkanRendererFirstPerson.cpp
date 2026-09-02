@@ -5,6 +5,7 @@
 #include "game/character/CharacterAppearance.h"
 #include "game/character/PlayerBodyRig.h"
 #include "render/scene/FirstPersonBodyBuilder.h"
+#include "render/scene/VoxelCharacterBuilder.h"
 
 namespace rf::render {
 
@@ -14,11 +15,24 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
     auto bodyPose = game::character::PlayerBodyRig::solve(feet, bodyForward, player_.crouching());
 
     // MiningSwing owns the physical right-arm animation. Rendering copies that exact solved chain
-    // into the full body so visible fist position and collision sweep can never drift apart.
+    // so the visible fist and collision sweep remain the same motion.
     if (miningSwing_.pose().active) bodyPose.rightArm = miningSwing_.pose().rightArm;
 
     const game::character::CharacterAppearance appearance{};
-    const world::VoxelMesh mesh = scene::FirstPersonBodyBuilder::build(bodyPose, appearance);
+    world::VoxelMesh mesh;
+    if (player_.thirdPerson()) {
+        // Third person is the only mode that renders the whole avatar. This is also the inspection
+        // view used to judge the reference-driven character proportions and future equipped gear.
+        mesh = scene::VoxelCharacterBuilder::build(bodyPose, appearance);
+    } else if (miningSwing_.pose().active) {
+        // First person never renders the torso/legs/head. Only the active striking arm is allowed
+        // into the view, eliminating the giant body sheet that previously covered half the screen.
+        mesh = scene::FirstPersonBodyBuilder::build(bodyPose, appearance);
+    } else {
+        firstPersonIndexCount_ = 0;
+        return true;
+    }
+
     if (mesh.empty()) {
         firstPersonIndexCount_ = 0;
         return true;
@@ -30,7 +44,7 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
         !ensureDynamicBuffer(firstPersonIndices_, indexBytes, VK_BUFFER_USAGE_INDEX_BUFFER_BIT) ||
         !writeDynamicBuffer(firstPersonVertices_, mesh.vertices.data(), vertexBytes) ||
         !writeDynamicBuffer(firstPersonIndices_, mesh.indices.data(), indexBytes)) {
-        setError(L"RuneForge could not update first-person body geometry.");
+        setError(L"RuneForge could not update player body geometry.");
         return false;
     }
     firstPersonIndexCount_ = static_cast<std::uint32_t>(mesh.indices.size());

@@ -55,7 +55,7 @@ game::Vec3 cameraRight(game::Vec3 forward) noexcept {
 
 game::Vec3 cameraUp(game::Vec3 forward, game::Vec3 right) noexcept {
     return game::normalized({
-        -forward.y * right.z,
+        forward.y * right.z,
         forward.z * right.x - forward.x * right.z,
         -forward.y * right.x,
     });
@@ -222,7 +222,7 @@ void VulkanRenderer::updateMining(float deltaSeconds) {
     const auto right = cameraRight(forward);
     const auto up = cameraUp(forward, right);
 
-    constexpr float acquisitionReach = game::interaction::MiningSwing::fistReach + 0.04f;
+    constexpr float acquisitionReach = game::interaction::MiningSwing::interactionReach + 0.04f;
     auto target = world_.raycast(eye.x, eye.y, eye.z,
                                  forward.x, forward.y, forward.z, acquisitionReach);
     if (target.hit && target.block.y <= 0) target = {};
@@ -272,15 +272,37 @@ std::optional<world::BlockId> VulkanRenderer::selectedPlacementBlock() const noe
 }
 
 void VulkanRenderer::updatePushData(float elapsedSeconds) {
-    const auto eye = player_.eyePosition();
+    const auto playerEye = player_.eyePosition();
+    const auto direction = player_.lookDirection();
+    auto eye = playerEye;
+
+    if (player_.thirdPerson()) {
+        constexpr float desiredCameraDistance = 3.20f;
+        constexpr float wallPadding = 0.20f;
+        const game::Vec3 backward = direction * -1.0f;
+        float cameraDistance = desiredCameraDistance;
+        const auto obstruction = world_.raycast(playerEye.x, playerEye.y, playerEye.z,
+                                                backward.x, backward.y, backward.z,
+                                                desiredCameraDistance);
+        if (obstruction.hit) {
+            const float dx = obstruction.worldX - playerEye.x;
+            const float dy = obstruction.worldY - playerEye.y;
+            const float dz = obstruction.worldZ - playerEye.z;
+            const float hitDistance = std::sqrt(dx * dx + dy * dy + dz * dz);
+            cameraDistance = std::clamp(hitDistance - wallPadding, 0.42f, desiredCameraDistance);
+        }
+        eye = playerEye + backward * cameraDistance;
+    }
+
     pushData_.time = elapsedSeconds;
     pushData_.aspect = static_cast<float>(swapchainExtent_.width) /
                        static_cast<float>(std::max<std::uint32_t>(swapchainExtent_.height, 1));
     pushData_.eyeX = eye.x;
     pushData_.eyeY = eye.y;
     pushData_.eyeZ = eye.z;
-    pushData_.yaw = player_.yaw();
-    pushData_.pitch = player_.pitch();
+    pushData_.cameraForwardX = direction.x;
+    pushData_.cameraForwardY = direction.y;
+    pushData_.cameraForwardZ = direction.z;
     pushData_.viewportWidth = static_cast<float>(swapchainExtent_.width);
     pushData_.viewportHeight = static_cast<float>(swapchainExtent_.height);
     const float fovRadians = settings_.fovDegrees * 0.01745329251994329577f;
@@ -291,22 +313,35 @@ void VulkanRenderer::updatePushData(float elapsedSeconds) {
     pushData_.selectedMaterial = selected ? static_cast<float>(static_cast<std::uint32_t>(*selected)) : -1.0f;
     pushData_.miningMode = static_cast<float>(static_cast<std::uint8_t>(mining_.mode()));
 
-    const auto direction = player_.lookDirection();
-    constexpr float interactionReach = game::interaction::MiningSwing::fistReach + 0.04f;
-    const auto hit = world_.raycast(eye.x, eye.y, eye.z,
-                                    direction.x, direction.y, direction.z, interactionReach);
+    constexpr float previewReach = 4.50f;
+    constexpr float interactionReach = game::interaction::MiningSwing::interactionReach + 0.04f;
+    const auto hit = world_.raycast(playerEye.x, playerEye.y, playerEye.z,
+                                    direction.x, direction.y, direction.z, previewReach);
     if (hit.hit && hit.block.y > 0) {
-        currentMiningTarget_ = hit.block;
-        if (mining_.mode() == game::mining::MiningMode::Micro) {
-            const auto* state = world_.microState(hit.block);
-            currentMiningProgress_ = state ? (1.0f - state->solidFraction()) : 0.0f;
-        } else {
-            currentMiningProgress_ = mining_.damageAt(hit.block);
-        }
+        const float dx = hit.worldX - playerEye.x;
+        const float dy = hit.worldY - playerEye.y;
+        const float dz = hit.worldZ - playerEye.z;
+        const float hitDistance = std::sqrt(dx * dx + dy * dy + dz * dz);
+        const bool reachable = hitDistance <= interactionReach;
+
         pushData_.targetBlockX = static_cast<float>(hit.block.x);
         pushData_.targetBlockY = static_cast<float>(hit.block.y);
         pushData_.targetBlockZ = static_cast<float>(hit.block.z);
-        pushData_.targetActive = 1.0f;
+        // +1 = reachable cyan/green outline, -1 = visible but out-of-range red/orange outline.
+        pushData_.targetActive = reachable ? 1.0f : -1.0f;
+
+        if (reachable) {
+            currentMiningTarget_ = hit.block;
+            if (mining_.mode() == game::mining::MiningMode::Micro) {
+                const auto* state = world_.microState(hit.block);
+                currentMiningProgress_ = state ? (1.0f - state->solidFraction()) : 0.0f;
+            } else {
+                currentMiningProgress_ = mining_.damageAt(hit.block);
+            }
+        } else {
+            currentMiningTarget_.reset();
+            currentMiningProgress_ = 0.0f;
+        }
     } else {
         currentMiningTarget_.reset();
         currentMiningProgress_ = 0.0f;
@@ -423,6 +458,7 @@ void VulkanRenderer::onKeyDown(WPARAM key) {
         case '8': inventory_.selectHotbar(7); break;
         case '9': inventory_.selectHotbar(8); break;
         case 'M': mining_.cycleMode(); currentMiningProgress_ = 0.0f; miningSwing_.reset(); break;
+        case VK_F3: player_.toggleCameraMode(); miningSwing_.reset(); break;
         case VK_F5: saveNow(); break;
         default: break;
     }
@@ -569,7 +605,7 @@ void VulkanRenderer::updateWindowTitle() {
     title += L" | Water " + std::to_wstring(world_.activeWaterCellCount()) + L" active";
     title += L" | " + gpu;
     if (paused_) title += L" | Esc: Resume";
-    else title += L" | Hold LMB Swing/Mine | RMB Place | M Mining Mode | 1-9 Hotbar | Tab/I Inventory | Esc Pause";
+    else title += L" | Hold LMB Swing/Mine | RMB Place | F3 Camera | M Mining Mode | 1-9 Hotbar | Tab/I Inventory | Esc Pause";
     SetWindowTextW(hwnd_, title.c_str());
 }
 
