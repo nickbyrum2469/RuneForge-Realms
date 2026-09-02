@@ -58,6 +58,16 @@ void assertHeroTaper(const rf::game::character::PlayerBodyPose& pose) {
     assert(shoulderSpan / hipSpan > 2.25f);
 }
 
+void assertCompactHeadStack(const rf::game::character::PlayerBodyPose& pose) {
+    // The reference hero has almost no exposed pencil-neck gap: the large hair/head mass sits down
+    // into the shoulders. Keep the compact proportions stable through idle, gait and crouch poses.
+    assert(distance(pose.chest, pose.neck) > 0.100f);
+    assert(distance(pose.chest, pose.neck) < 0.110f);
+    assert(distance(pose.neck, pose.head) > 0.120f);
+    assert(distance(pose.neck, pose.head) < 0.130f);
+    assert(distance(pose.chest, pose.head) < 0.235f);
+}
+
 } // namespace
 
 void runCharacterRigTests() {
@@ -79,6 +89,7 @@ void runCharacterRigTests() {
     assertFixedLeg(body.rightLeg);
     assertFixedLeg(body.leftLeg);
     assertHeroTaper(body);
+    assertCompactHeadStack(body);
     assert(body.rightArm.hand.y < body.pelvis.y - 0.035f);
     assert(body.leftArm.hand.y < body.pelvis.y - 0.035f);
     assert(distance(body.rightArm.shoulder, body.leftArm.shoulder) > 0.62f);
@@ -97,6 +108,7 @@ void runCharacterRigTests() {
     assertFixedLeg(walkingA.rightLeg);
     assertFixedLeg(walkingA.leftLeg);
     assertHeroTaper(walkingA);
+    assertCompactHeadStack(walkingA);
     assert(game::dot(walkingA.rightLeg.ankle - feet, walkingA.forward) >
            game::dot(walkingA.leftLeg.ankle - feet, walkingA.forward) + 0.15f);
     assert(game::dot(walkingA.leftArm.hand - walkingA.pelvis, walkingA.forward) >
@@ -118,6 +130,7 @@ void runCharacterRigTests() {
     assertFixedLeg(walkingB.rightLeg);
     assertFixedLeg(walkingB.leftLeg);
     assertHeroTaper(walkingB);
+    assertCompactHeadStack(walkingB);
     assert(game::dot(walkingB.leftLeg.ankle - feet, walkingB.forward) >
            game::dot(walkingB.rightLeg.ankle - feet, walkingB.forward) + 0.15f);
     assert(game::dot(walkingB.rightArm.hand - walkingB.pelvis, walkingB.forward) >
@@ -135,6 +148,7 @@ void runCharacterRigTests() {
     assertFixedLeg(breathing.rightLeg);
     assertFixedLeg(breathing.leftLeg);
     assertHeroTaper(breathing);
+    assertCompactHeadStack(breathing);
     assert(breathing.pelvis.y > body.pelvis.y + 0.003f);
 
     const game::Vec3 impossibleHand{6.0f, 12.0f, 7.0f};
@@ -150,6 +164,7 @@ void runCharacterRigTests() {
     assertFixedLeg(crouched.rightLeg);
     assertFixedLeg(crouched.leftLeg);
     assertHeroTaper(crouched);
+    assertCompactHeadStack(crouched);
     assert(crouched.pelvis.y < body.pelvis.y);
 
     const auto fullPose = game::character::PlayerBodyRig::solve({0.0f, 0.0f, 0.0f}, forward, false);
