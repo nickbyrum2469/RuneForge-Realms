@@ -10,6 +10,7 @@ option(RF_BUILD_TESTS "Build RuneForge tests" ON)
 find_package(Threads REQUIRED)
 
 add_library(runeforge_core STATIC
+    src/app/UiState.cpp
     src/core/Version.cpp
     src/core/HubModel.cpp
     src/core/jobs/JobSystem.cpp
