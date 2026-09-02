@@ -114,7 +114,8 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
                                     Vec3 facingForward,
                                     bool crouching,
                                     const Vec3* rightHandTarget,
-                                    const Vec3* leftHandTarget) noexcept {
+                                    const Vec3* leftHandTarget,
+                                    const BodyMotionState* motion) noexcept {
     PlayerBodyPose pose;
     pose.root = feet;
     pose.up = {0.0f, 1.0f, 0.0f};
@@ -122,9 +123,16 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
     pose.right = safeNormalized({pose.forward.z, 0.0f, -pose.forward.x}, {1.0f, 0.0f, 0.0f});
 
     const float crouch = crouching ? 1.0f : 0.0f;
-    pose.pelvis = feet + pose.up * (0.82f - crouch * 0.18f) - pose.forward * (crouch * 0.025f);
+    const float locomotion = motion ? std::clamp(motion->locomotionAmount, 0.0f, 1.0f) : 0.0f;
+    const float walk = motion ? std::sin(motion->locomotionPhase) : 0.0f;
+    const float idle = motion ? std::sin(motion->idlePhase) : 0.0f;
+    const float gaitBob = locomotion * (0.010f + 0.008f * std::cos((motion ? motion->locomotionPhase : 0.0f) * 2.0f));
+    const float idleBob = (1.0f - locomotion) * idle * 0.0045f;
+
+    pose.pelvis = feet + pose.up * (0.82f - crouch * 0.18f + gaitBob + idleBob) -
+                  pose.forward * (crouch * 0.025f);
     const Vec3 torsoDirection = safeNormalized(pose.up * (1.0f - crouch * 0.13f) +
-                                                pose.forward * (crouch * 0.34f),
+                                                pose.forward * (crouch * 0.34f + locomotion * 0.025f),
                                                 pose.up);
     pose.spine = pose.pelvis + torsoDirection * 0.245f;
     pose.chest = pose.spine + torsoDirection * 0.270f;
@@ -134,10 +142,13 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
     const Vec3 rightShoulder = pose.chest + pose.right * 0.295f + torsoDirection * 0.020f;
     const Vec3 leftShoulder = pose.chest - pose.right * 0.295f + torsoDirection * 0.020f;
 
-    // The reference hero's arms hang naturally beside the upper thighs. The previous rest target
-    // sat above the pelvis and forced a permanent bent-elbow mannequin pose.
-    const Vec3 rightRestHand = pose.pelvis + pose.right * 0.305f + pose.forward * 0.045f - pose.up * 0.075f;
-    const Vec3 leftRestHand = pose.pelvis - pose.right * 0.305f + pose.forward * 0.040f - pose.up * 0.075f;
+    // Arms counter-swing against the legs while preserving the exact fixed two-bone lengths. The
+    // motion is deliberately compact so the heavy voxel hero feels planted instead of rubbery.
+    const float armSwing = walk * locomotion * 0.105f;
+    const Vec3 rightRestHand = pose.pelvis + pose.right * 0.305f + pose.forward * (0.045f - armSwing) -
+                               pose.up * 0.075f;
+    const Vec3 leftRestHand = pose.pelvis - pose.right * 0.305f + pose.forward * (0.040f + armSwing) -
+                              pose.up * 0.075f;
     const Vec3 rightDesired = rightHandTarget ? *rightHandTarget : rightRestHand;
     const Vec3 leftDesired = leftHandTarget ? *leftHandTarget : leftRestHand;
 
@@ -159,8 +170,15 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
     const Vec3 rightHip = pose.pelvis + pose.right * 0.145f;
     const Vec3 leftHip = pose.pelvis - pose.right * 0.145f;
     const float crouchFootSpread = crouch * 0.045f;
-    const Vec3 rightAnkle = feet + pose.right * (0.145f + crouchFootSpread) + pose.forward * (crouch * 0.09f) + pose.up * 0.075f;
-    const Vec3 leftAnkle = feet - pose.right * (0.145f + crouchFootSpread) + pose.forward * (crouch * 0.09f) + pose.up * 0.075f;
+    const float stepTravel = locomotion * 0.105f;
+    const float rightLift = locomotion * std::max(walk, 0.0f) * 0.052f;
+    const float leftLift = locomotion * std::max(-walk, 0.0f) * 0.052f;
+    const Vec3 rightAnkle = feet + pose.right * (0.145f + crouchFootSpread) +
+                            pose.forward * (crouch * 0.09f + walk * stepTravel) +
+                            pose.up * (0.075f + rightLift);
+    const Vec3 leftAnkle = feet - pose.right * (0.145f + crouchFootSpread) +
+                           pose.forward * (crouch * 0.09f - walk * stepTravel) +
+                           pose.up * (0.075f + leftLift);
     pose.rightLeg = solveLeg(rightHip, rightAnkle, pose.forward, pose.right, true);
     pose.leftLeg = solveLeg(leftHip, leftAnkle, pose.forward, pose.right, false);
 
