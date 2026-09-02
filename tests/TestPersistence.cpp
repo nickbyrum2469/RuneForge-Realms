@@ -33,9 +33,40 @@ void runPersistenceTests() {
     fs::create_directories(root);
 
     using rf::save::worldstore::RegionFile;
+    using rf::save::worldstore::MicroRegionFile;
     assert((RegionFile::regionForBlock(0, 0) == rf::save::worldstore::RegionCoord{0, 0}));
     assert((RegionFile::regionForBlock(600, 0) == rf::save::worldstore::RegionCoord{1, 0}));
     assert((RegionFile::regionForBlock(-1, 0) == rf::save::worldstore::RegionCoord{-1, 0}));
+
+    // Region stores are rewritten frequently as player edits evolve. Replacing an already-existing
+    // file must commit the new payload without leaving a stale rollback file. On Windows this drives
+    // the rename-over-existing fallback path that previously deleted the live region first.
+    const fs::path replaceRegionDir = root / "replace-regions";
+    std::vector<rf::world::BlockEdit> replaceEdits{{{4, 8, 4}, rf::world::BlockId::Stone}};
+    assert(RegionFile::writeAll(replaceRegionDir, replaceEdits));
+    replaceEdits.front().block = rf::world::BlockId::Wood;
+    assert(RegionFile::writeAll(replaceRegionDir, replaceEdits));
+    const auto replacedEdits = RegionFile::readAll(replaceRegionDir);
+    assert(replacedEdits.size() == 1 && replacedEdits.front().block == rf::world::BlockId::Wood);
+    const auto regionPath = RegionFile::pathFor(replaceRegionDir, RegionFile::regionForBlock(4, 4));
+    assert(!fs::exists(regionPath.string() + ".bak"));
+
+    const fs::path replaceMicroDir = root / "replace-micro-regions";
+    rf::world::micro::MicroVoxelState firstMicroState;
+    assert(firstMicroState.clearSphere({7, 7, 7}, 1) > 0);
+    std::vector<rf::world::micro::MicroVoxelEdit> replaceMicroEdits{
+        rf::world::micro::makeEdit({4, 8, 4}, rf::world::BlockId::Stone, firstMicroState)
+    };
+    assert(MicroRegionFile::writeAll(replaceMicroDir, replaceMicroEdits));
+    rf::world::micro::MicroVoxelState secondMicroState;
+    assert(secondMicroState.clearSphere({4, 4, 4}, 2) > 0);
+    replaceMicroEdits.front() = rf::world::micro::makeEdit({4, 8, 4}, rf::world::BlockId::Stone, secondMicroState);
+    assert(MicroRegionFile::writeAll(replaceMicroDir, replaceMicroEdits));
+    const auto replacedMicroEdits = MicroRegionFile::readAll(replaceMicroDir);
+    assert(replacedMicroEdits.size() == 1);
+    assert(replacedMicroEdits.front().occupancyWords == replaceMicroEdits.front().occupancyWords);
+    const auto microPath = MicroRegionFile::pathFor(replaceMicroDir, RegionFile::regionForBlock(4, 4));
+    assert(!fs::exists(microPath.string() + ".bak"));
 
     const fs::path currentDir = root / "current";
     const fs::path savePath = currentDir / "world.rfsv";
