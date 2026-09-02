@@ -129,14 +129,14 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
     const float walk = motion ? std::sin(motion->locomotionPhase) : 0.0f;
     const float idle = motion ? std::sin(motion->idlePhase) : 0.0f;
     const float gaitBob = locomotion * (0.010f + 0.008f * std::cos((motion ? motion->locomotionPhase : 0.0f) * 2.0f));
-    const float idleBob = (1.0f - locomotion) * idle * 0.0045f;
+    const float idleBreath = (1.0f - locomotion) * idle;
 
     // Shift the pelvis over the planted leg while the opposite foot is in flight. This small lateral
     // weight transfer is what keeps the reference-heavy hero from reading like a rigid marching toy.
     // It is pose-local only: camera/world orientation is untouched and all articulated limb lengths
     // are still solved by the exact same fixed-length two-bone chains below.
     const float weightShift = -walk * locomotion * 0.018f;
-    pose.pelvis = feet + pose.up * (0.82f - crouch * 0.18f + gaitBob + idleBob) +
+    pose.pelvis = feet + pose.up * (0.82f - crouch * 0.18f + gaitBob) +
                   pose.right * weightShift - pose.forward * (crouch * 0.025f);
 
     // Counter-lean the upper body against the planted-leg shift. A tiny amount is enough to make the
@@ -146,8 +146,15 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
                                                 pose.forward * (crouch * 0.34f + locomotion * 0.025f) +
                                                 pose.right * torsoSideLean,
                                                 pose.up);
-    pose.spine = pose.pelvis + torsoDirection * 0.245f;
-    pose.chest = pose.spine + torsoDirection * 0.270f;
+
+    // Idle breathing should read through the ribcage instead of making the whole hero hover vertically.
+    // Keep the pelvis planted and expand only the spine/chest stack by a few millimeters. Shoulders,
+    // head and arms inherit that local torso motion while the fixed-length limb solvers remain intact.
+    const float breathSpine = idleBreath * 0.0015f;
+    const float breathChest = idleBreath * 0.0035f;
+    const float breathForward = idleBreath * 0.0040f;
+    pose.spine = pose.pelvis + torsoDirection * (0.245f + breathSpine);
+    pose.chest = pose.spine + torsoDirection * (0.270f + breathChest) + pose.forward * breathForward;
 
     // The reference head sits down into a short, thick neck instead of floating above the deltoids.
     // Compact only this upper-neck stack: torso and articulated limb lengths stay exactly unchanged.
