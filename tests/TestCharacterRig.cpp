@@ -103,6 +103,13 @@ void runCharacterRigTests() {
            game::dot(walkingA.rightArm.hand - walkingA.pelvis, walkingA.forward) + 0.12f);
     assert(walkingA.rightLeg.ankle.y > walkingA.leftLeg.ankle.y + 0.04f);
 
+    // The raised right leg means the left leg is planted: pelvis shifts left, hips rotate with the
+    // stride and shoulders counter-rotate. These are deliberately small pose-space offsets, not a
+    // world/camera rotation, and they must reverse cleanly on the opposite half of the gait cycle.
+    assert(game::dot(walkingA.pelvis - body.pelvis, walkingA.right) < -0.012f);
+    assert(game::dot(walkingA.rightLeg.hip - walkingA.leftLeg.hip, walkingA.forward) > 0.030f);
+    assert(game::dot(walkingA.rightArm.shoulder - walkingA.leftArm.shoulder, walkingA.forward) < -0.035f);
+
     game::character::BodyMotionState gaitB = gaitA;
     gaitB.locomotionPhase = 4.71238898038f;
     const auto walkingB = game::character::PlayerBodyRig::solve(feet, forward, false, nullptr, nullptr, &gaitB);
@@ -116,6 +123,9 @@ void runCharacterRigTests() {
     assert(game::dot(walkingB.rightArm.hand - walkingB.pelvis, walkingB.forward) >
            game::dot(walkingB.leftArm.hand - walkingB.pelvis, walkingB.forward) + 0.12f);
     assert(walkingB.leftLeg.ankle.y > walkingB.rightLeg.ankle.y + 0.04f);
+    assert(game::dot(walkingB.pelvis - body.pelvis, walkingB.right) > 0.012f);
+    assert(game::dot(walkingB.rightLeg.hip - walkingB.leftLeg.hip, walkingB.forward) < -0.030f);
+    assert(game::dot(walkingB.rightArm.shoulder - walkingB.leftArm.shoulder, walkingB.forward) > 0.035f);
 
     game::character::BodyMotionState idleMotion;
     idleMotion.idlePhase = 1.57079632679f;
