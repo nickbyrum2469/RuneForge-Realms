@@ -1,0 +1,28 @@
+name: Temporary 0.5.2 Character Compile Fix
+
+on:
+  push:
+    branches: [fix/frontier-camera-reach-visuals-0.5.2]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/frontier-camera-reach-visuals-0.5.2
+          fetch-depth: 0
+      - name: Apply compile correction
+        run: python3 tools/fix_0_5_2_character_compile.py
+      - name: Commit corrected source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/render/scene/VoxelCharacterBuilder.cpp
+          git commit -m "fix: compile reference-driven hero geometry [character-compile]"
+          git push origin HEAD:fix/frontier-camera-reach-visuals-0.5.2
