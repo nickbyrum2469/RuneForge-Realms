@@ -75,30 +75,34 @@ float3 acesTone(float3 x) {
 }
 
 float3 worldWaterNormal(float3 p, float3 geometricNormal) {
-    // Two broad world-space wave families plus finer wind-driven ripples. The phase uses world
-    // position and simulation time only; turning the camera can never drag the water pattern.
-    float2 wind = float2(pushData.time * 0.18, pushData.time * 0.11);
+    // Broad rolling shapes carry the body while smaller cross-waves make the surface read as a
+    // crystalline voxel liquid. Everything is world/time based; camera motion can never drag it.
     float2 uv = p.xz;
-    float h0 = sin((uv.x * 0.72 + uv.y * 0.31) + pushData.time * 0.72) * 0.020;
-    float h1 = sin((uv.x * -0.41 + uv.y * 0.88) + pushData.time * 0.53) * 0.014;
-    float h2 = (fbm2((uv + wind) * 1.35) - 0.5) * 0.028;
+    float2 wind = float2(pushData.time * 0.16, pushData.time * 0.105);
+    float h0 = sin((uv.x * 0.76 + uv.y * 0.34) + pushData.time * 0.76) * 0.025;
+    float h1 = sin((uv.x * -0.47 + uv.y * 0.92) + pushData.time * 0.57) * 0.018;
+    float h2 = sin((uv.x * 1.62 - uv.y * 1.18) + pushData.time * 1.06) * 0.008;
+    float h3 = (fbm2((uv + wind) * 1.55) - 0.5) * 0.024;
 
-    const float epsilon = 0.055;
-    float hx = sin(((uv.x + epsilon) * 0.72 + uv.y * 0.31) + pushData.time * 0.72) * 0.020 +
-               sin(((uv.x + epsilon) * -0.41 + uv.y * 0.88) + pushData.time * 0.53) * 0.014 +
-               (fbm2((uv + float2(epsilon, 0.0) + wind) * 1.35) - 0.5) * 0.028;
-    float hz = sin((uv.x * 0.72 + (uv.y + epsilon) * 0.31) + pushData.time * 0.72) * 0.020 +
-               sin((uv.x * -0.41 + (uv.y + epsilon) * 0.88) + pushData.time * 0.53) * 0.014 +
-               (fbm2((uv + float2(0.0, epsilon) + wind) * 1.35) - 0.5) * 0.028;
-    float h = h0 + h1 + h2;
+    const float epsilon = 0.050;
+    float2 ux = uv + float2(epsilon, 0.0);
+    float2 uz = uv + float2(0.0, epsilon);
+    float hx = sin((ux.x * 0.76 + ux.y * 0.34) + pushData.time * 0.76) * 0.025 +
+               sin((ux.x * -0.47 + ux.y * 0.92) + pushData.time * 0.57) * 0.018 +
+               sin((ux.x * 1.62 - ux.y * 1.18) + pushData.time * 1.06) * 0.008 +
+               (fbm2((ux + wind) * 1.55) - 0.5) * 0.024;
+    float hz = sin((uz.x * 0.76 + uz.y * 0.34) + pushData.time * 0.76) * 0.025 +
+               sin((uz.x * -0.47 + uz.y * 0.92) + pushData.time * 0.57) * 0.018 +
+               sin((uz.x * 1.62 - uz.y * 1.18) + pushData.time * 1.06) * 0.008 +
+               (fbm2((uz + wind) * 1.55) - 0.5) * 0.024;
+    float h = h0 + h1 + h2 + h3;
 
     if (abs(geometricNormal.y) > 0.75) {
-        return normalize(float3(-(hx - h) / epsilon * 0.72, 1.0, -(hz - h) / epsilon * 0.72));
+        return normalize(float3(-(hx - h) / epsilon * 0.78, 1.0, -(hz - h) / epsilon * 0.78));
     }
 
-    // Vertical water faces keep their geometric orientation but receive subtle ripple variation.
-    float ripple = (fbm2(float2(p.y * 0.72, dot(p.xz, float2(0.63, 0.37))) + wind * 0.35) - 0.5) * 0.16;
-    return normalize(geometricNormal + float3(ripple, ripple * 0.25, -ripple));
+    float ripple = (fbm2(float2(p.y * 0.82, dot(p.xz, float2(0.67, 0.41))) + wind * 0.42) - 0.5) * 0.19;
+    return normalize(geometricNormal + float3(ripple, ripple * 0.22, -ripple));
 }
 
 float4 PSWater(VSOutput input) : SV_Target0 {
@@ -109,35 +113,49 @@ float4 PSWater(VSOutput input) : SV_Target0 {
 
     const float3 sunDirection = normalize(float3(-0.52, 0.63, -0.44));
     float ndv = saturate(abs(dot(n, viewDirection)));
-    float fresnel = 0.035 + 0.965 * pow(1.0 - ndv, 5.0);
+    float fresnel = 0.045 + 0.955 * pow(1.0 - ndv, 5.0);
 
-    // This pass deliberately remains stylized: clear cyan shallows, teal depth absorption and a
-    // cool sky reflection instead of photorealistic mirror water.
-    float sideDepth = saturate((6.0 - input.worldPosition.y) / 4.5);
-    float distanceDepth = saturate(input.depth / 120.0);
-    float depthFactor = saturate(sideDepth * 0.72 + distanceDepth * 0.20);
-    float3 shallowColor = float3(0.055, 0.385, 0.500);
-    float3 deepColor = float3(0.018, 0.125, 0.245);
-    float3 bodyColor = lerp(shallowColor, deepColor, depthFactor);
+    // Deeper cobalt body with saturated cyan shallows, matching the user's crystalline reference
+    // instead of the washed gray/teal 0.5.2 lake. This is stylized optical depth, not fake fluid truth.
+    float sideDepth = saturate((7.0 - input.worldPosition.y) / 5.5);
+    float distanceDepth = saturate(input.depth / 145.0);
+    float depthFactor = saturate(sideDepth * 0.72 + distanceDepth * 0.18);
+    float3 shallowColor = float3(0.018, 0.355, 0.680);
+    float3 middleColor = float3(0.008, 0.185, 0.465);
+    float3 deepColor = float3(0.004, 0.045, 0.190);
+    float3 bodyColor = lerp(shallowColor, middleColor, smoothstep(0.05, 0.58, depthFactor));
+    bodyColor = lerp(bodyColor, deepColor, smoothstep(0.48, 1.0, depthFactor));
 
-    float3 reflectedSky = lerp(float3(0.30, 0.49, 0.69), float3(0.70, 0.78, 0.83), saturate(n.y * 0.5 + 0.5));
+    // World-locked quantized glints echo the small block facets in the reference cube without making
+    // the actual water surface a static checkerboard.
+    float2 facetId = floor(input.worldPosition.xz * 10.0 + float2(pushData.time * 0.55, -pushData.time * 0.36));
+    float facet = hash21(facetId + 31.0);
+    float facetGlint = step(0.91, facet) * (0.35 + 0.65 * fresnel);
+    float causticA = abs(sin(input.worldPosition.x * 2.1 + pushData.time * 0.82) *
+                         sin(input.worldPosition.z * 1.7 - pushData.time * 0.67));
+    float causticB = fbm2(input.worldPosition.xz * 2.7 + float2(pushData.time * 0.22, -pushData.time * 0.17));
+    float caustic = smoothstep(0.60, 0.94, causticA * 0.62 + causticB * 0.58);
+    bodyColor += float3(0.015, 0.30, 0.50) * caustic * (1.0 - depthFactor) * 0.42;
+
+    float3 reflectedSky = lerp(float3(0.10, 0.34, 0.66), float3(0.62, 0.82, 0.98), saturate(n.y * 0.5 + 0.5));
     float3 halfVector = normalize(sunDirection + viewDirection);
-    float sunGlint = pow(saturate(dot(n, halfVector)), 150.0) * 1.85;
+    float sunGlint = pow(saturate(dot(n, halfVector)), 128.0) * 2.15;
 
-    float broadWave = fbm2(input.worldPosition.xz * 0.24 + float2(pushData.time * 0.035, pushData.time * 0.018));
-    bodyColor *= 0.91 + broadWave * 0.16;
+    float broadWave = fbm2(input.worldPosition.xz * 0.27 + float2(pushData.time * 0.034, pushData.time * 0.019));
+    bodyColor *= 0.90 + broadWave * 0.20;
 
-    float3 color = lerp(bodyColor, reflectedSky, saturate(fresnel * 0.72));
-    color += float3(1.00, 0.88, 0.65) * sunGlint;
+    float3 color = lerp(bodyColor, reflectedSky, saturate(fresnel * 0.80));
+    color += float3(0.55, 0.92, 1.00) * facetGlint * 0.36;
+    color += float3(1.00, 0.91, 0.72) * sunGlint;
 
-    // Slight horizon haze keeps large lakes integrated with the same atmosphere as terrain.
-    float fog = smoothstep(92.0, 235.0, max(input.depth, 0.0));
-    color = lerp(color, float3(0.39, 0.48, 0.56), fog * 0.48);
-    color = acesTone(color * 0.88);
+    // Keep the distance integration subtle so water retains its blue identity instead of fading to gray.
+    float fog = smoothstep(112.0, 255.0, max(input.depth, 0.0));
+    color = lerp(color, float3(0.23, 0.38, 0.55), fog * 0.34);
+    color = acesTone(color * 0.96);
     color = pow(max(color, 0.0), 1.0 / 2.2);
 
     const bool topSurface = geometricNormal.y > 0.75;
-    float alpha = topSurface ? lerp(0.42, 0.68, fresnel) : lerp(0.54, 0.76, fresnel);
-    alpha = saturate(alpha + depthFactor * 0.08);
+    float alpha = topSurface ? lerp(0.48, 0.76, fresnel) : lerp(0.62, 0.84, fresnel);
+    alpha = saturate(alpha + depthFactor * 0.10);
     return float4(color, alpha);
 }
