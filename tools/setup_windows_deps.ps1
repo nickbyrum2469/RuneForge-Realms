@@ -24,6 +24,12 @@ $headers = @{
     'User-Agent' = 'RuneForge-Realms-build'
     'Accept' = 'application/vnd.github+json'
 }
+if ($env:GITHUB_TOKEN) {
+    $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN"
+} elseif ($env:GH_TOKEN) {
+    $headers['Authorization'] = "Bearer $env:GH_TOKEN"
+}
+
 $release = Invoke-RestMethod -Headers $headers -Uri 'https://api.github.com/repos/microsoft/DirectXShaderCompiler/releases/latest'
 $asset = $release.assets |
     Where-Object { $_.name -match '^dxc_.*\.zip$' -and $_.name -notmatch '(pdb|symbols)' } |

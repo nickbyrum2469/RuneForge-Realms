@@ -40,9 +40,9 @@ jobs:
         shell: pwsh
         run: |
           git fetch --tags --force
-          $existing = git rev-list -n 1 $env:TAG 2>$null
-          if ($LASTEXITCODE -eq 0 -and $existing) {
-            $existing = $existing.Trim()
+          $matchingTag = (git tag --list $env:TAG).Trim()
+          if ($matchingTag) {
+            $existing = (git rev-list -n 1 $env:TAG).Trim()
             if ($existing -ne $env:GITHUB_SHA) {
               throw "Version $env:VERSION is already published at $existing. Refusing to replace its assets with different code $env:GITHUB_SHA. Bump VERSION and the CMake project version before release."
             }
@@ -50,6 +50,8 @@ jobs:
 
       - name: Install shader compiler
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./tools/setup_windows_deps.ps1
 
       - name: Configure
@@ -83,7 +85,9 @@ jobs:
         shell: pwsh
         run: |
           $notes = "RuneForge Realms $env:VERSION for Windows x64. This package contains the current Frontier Realms runtime, native bootstrapper, shaders, and bundled README. Extract the ZIP and run RuneForgeBootstrap.exe; later published runtime versions are detected by the bootstrapper on startup."
-          if (gh release view $env:TAG 2>$null) {
+          $releases = gh release list --limit 100 --json tagName | ConvertFrom-Json
+          $existingRelease = $releases | Where-Object { $_.tagName -eq $env:TAG } | Select-Object -First 1
+          if ($existingRelease) {
             Write-Host "Release $env:TAG already exists at this exact commit; refreshing reproducible assets."
           } else {
             gh release create $env:TAG --target $env:GITHUB_SHA --title "RuneForge Realms $env:VERSION" --notes $notes --latest
