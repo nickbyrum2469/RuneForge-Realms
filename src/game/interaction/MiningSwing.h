@@ -13,7 +13,9 @@ namespace rf::game::interaction {
 struct SwingPose {
     bool active{false};
     bool contactMade{false};
+    bool hasTarget{false};
     float normalizedTime{};
+    float targetDistance{};
     character::ArmPose rightArm{};
     Vec3 desiredHand{};
 };
@@ -24,10 +26,6 @@ struct SwingContact {
 
 class MiningSwing {
 public:
-    // Interaction reach is intentionally a game-feel value rather than the literal anatomical arm
-    // length. The visible arm remains fixed-length; the strike volume begins at the solved fist and
-    // extends forward during the active frame so a block can be comfortably hit without the camera
-    // having to be pressed against it.
     static constexpr float interactionReach = 2.45f;
     static constexpr float fistReach = interactionReach;
     static constexpr float fistRadius = 0.115f;
@@ -77,9 +75,9 @@ private:
     bool contactMade_{false};
     float elapsed_{};
     float duration_{0.52f};
+    float targetDistance_{interactionReach};
     world::RaycastHit target_{};
     Vec3 targetPoint_{};
-    Vec3 previousHand_{};
     SwingPose pose_{};
 };
 
