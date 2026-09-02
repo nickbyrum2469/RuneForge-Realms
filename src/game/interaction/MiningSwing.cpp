@@ -96,9 +96,9 @@ Vec3 MiningSwing::calculateDesiredHand(float t,
     // crosshair target distance. The first-person camera-space hand uses the same targetDistance value.
     const float targetRatio = std::clamp(targetDistance_ / interactionReach, 0.0f, 1.0f);
     const float strikeDepth = 0.47f + targetRatio * 0.18f;
-    const Vec3 centerStrike = eye + forward * strikeDepth - up * 0.010f;
+    const Vec3 centerStrike = eye + forward * strikeDepth;
     const Vec3 windup = rest - forward * 0.11f + right * 0.18f + up * 0.08f;
-    const Vec3 strike = centerStrike - right * 0.010f;
+    const Vec3 strike = centerStrike;
     const Vec3 follow = eye + forward * (strikeDepth + 0.045f) - right * 0.12f - up * 0.075f;
 
     if (t < 0.18f) {
@@ -154,10 +154,10 @@ std::optional<SwingContact> MiningSwing::update(float deltaSeconds,
     updatePose(t, feet, crouching, eye, forward, right, up);
 
     std::optional<SwingContact> contact;
-    // The crosshair-selected first solid block is the authoritative intended impact. We trigger that
-    // locked target once as the hand reaches the center strike frame, eliminating the old behavior
-    // where an off-axis fist-volume ray could hit visibly below or beside the center cursor.
-    const bool crossedImpact = previousT < 0.53f && t >= 0.53f;
+    // 0.56 is the exact visual strike endpoint in both the third-person pose and first-person
+    // viewmodel. Terrain contact therefore happens on the frame the knuckles arrive at the center
+    // crosshair rather than slightly before them.
+    const bool crossedImpact = previousT < 0.56f && t >= 0.56f;
     if (!contactMade_ && crossedImpact && target_.hit &&
         world.getBlock(target_.block.x, target_.block.y, target_.block.z) != world::BlockId::Air) {
         contactMade_ = true;
