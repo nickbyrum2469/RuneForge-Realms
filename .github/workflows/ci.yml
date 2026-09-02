@@ -33,3 +33,18 @@ jobs:
         run: cmake --build build --config Release --parallel
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Stage hardware-validation build
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          cmake --install build --config Release --prefix "$PWD/staging/RuneForgeRealms"
+          Copy-Item README.md staging/RuneForgeRealms/README.md
+      - name: Upload hardware-validation build
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: RuneForgeRealms-Windows-x64-PR-${{ github.event.pull_request.number }}
+          path: staging/RuneForgeRealms
+          if-no-files-found: error
+          retention-days: 7
