@@ -25,7 +25,7 @@ void PauseMenuPainter::draw() {
     surface_.stroke({491,116,618,613}, color(theme::Gold, 0.76f), 1.7f, 13);
     surface_.fill({565,145,470,82}, color(0x101927, 0.98f), 12);
     surface_.stroke({565,145,470,82}, color(theme::Gold, 0.85f), 2.0f, 12);
-    surface_.text(L"RUNEFO RGE REALMS", {565,146,470,44}, surface_.titleFormat(), color(theme::Ivory));
+    surface_.text(L"RUNEFORGE REALMS", {565,146,470,44}, surface_.titleFormat(), color(theme::Ivory));
     surface_.text(L"FRONTIER REALMS  /  PAUSED", {565,190,470,28}, surface_.smallFormat(), color(theme::BlueGlow));
 
     button(surface_, resume_, L"RESUME");
