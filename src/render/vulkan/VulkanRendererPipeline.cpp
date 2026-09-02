@@ -287,6 +287,7 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, std::uin
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
     drawSceneMeshes(commandBuffer, false);
+    drawBlockParticles(commandBuffer);
 
     // Transparent water is isolated from the opaque terrain index stream. That avoids drawing the
     // whole world twice and gives fluids independent blend/depth policy without destabilizing terrain.
