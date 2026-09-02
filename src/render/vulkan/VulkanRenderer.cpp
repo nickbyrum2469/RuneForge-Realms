@@ -605,7 +605,7 @@ void VulkanRenderer::updateWindowTitle() {
     title += L" | Water " + std::to_wstring(world_.activeWaterCellCount()) + L" active";
     title += L" | " + gpu;
     if (paused_) title += L" | Esc: Resume";
-    else title += L" | Hold LMB Swing/Mine | RMB Place | M Mining Mode | 1-9 Hotbar | Tab/I Inventory | Esc Pause";
+    else title += L" | Hold LMB Swing/Mine | RMB Place | F3 Camera | M Mining Mode | 1-9 Hotbar | Tab/I Inventory | Esc Pause";
     SetWindowTextW(hwnd_, title.c_str());
 }
 
