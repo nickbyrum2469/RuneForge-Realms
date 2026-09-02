@@ -149,7 +149,12 @@ void runCharacterRigTests() {
     assertFixedLeg(breathing.leftLeg);
     assertHeroTaper(breathing);
     assertCompactHeadStack(breathing);
-    assert(breathing.pelvis.y > body.pelvis.y + 0.003f);
+    // Idle breathing is torso-local: the pelvis stays planted while the ribcage/head stack expands
+    // slightly upward and forward. This prevents the old whole-body hover while preserving anatomy.
+    assert(std::abs(breathing.pelvis.y - body.pelvis.y) < 0.0001f);
+    assert(breathing.chest.y > body.chest.y + 0.0045f);
+    assert(game::dot(breathing.chest - body.chest, body.forward) > 0.0035f);
+    assert(breathing.head.y > body.head.y + 0.0045f);
 
     const game::Vec3 impossibleHand{6.0f, 12.0f, 7.0f};
     body = game::character::PlayerBodyRig::solve(feet, forward, false, &impossibleHand);
