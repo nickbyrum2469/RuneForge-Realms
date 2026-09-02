@@ -9,11 +9,12 @@ namespace rf::render {
 bool VulkanRenderer::updateFirstPersonBodyMesh() {
     const auto eye = player_.eyePosition();
     const auto forward = player_.lookDirection();
-    const game::Vec3 right = game::normalized({forward.z, 0.0f, -forward.x});
+    game::Vec3 right = game::normalized({forward.z, 0.0f, -forward.x});
+    if (game::lengthSquared(right) <= 0.000001f) right = {1.0f, 0.0f, 0.0f};
     const game::Vec3 up = game::normalized({
         -forward.y * right.z,
         forward.z * right.x - forward.x * right.z,
-        forward.y * right.x,
+        -forward.y * right.x,
     });
     const world::VoxelMesh mesh = scene::FirstPersonBodyBuilder::build(eye, forward, right, up, miningSwing_.pose());
     if (mesh.empty()) {
