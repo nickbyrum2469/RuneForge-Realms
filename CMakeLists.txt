@@ -231,6 +231,7 @@ if(RF_BUILD_TESTS)
     add_executable(runeforge_core_tests
         tests/CoreTests.cpp
         tests/TestCulling.cpp
+        tests/TestMeshScheduling.cpp
         tests/TestJobs.cpp
         tests/TestPersistence.cpp
         tests/TestRegistries.cpp
