@@ -4,8 +4,9 @@ struct PushData {
     float eyeX;
     float eyeY;
     float eyeZ;
-    float yaw;
-    float pitch;
+    float cameraForwardX;
+    float cameraForwardY;
+    float cameraForwardZ;
     float viewportWidth;
     float viewportHeight;
     float selectedMaterial;

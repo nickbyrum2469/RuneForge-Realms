@@ -83,38 +83,45 @@ world::SurfaceMaterial gearMaterial(GearVisual visual) noexcept {
 
 void addTorso(world::VoxelMesh& mesh, const PlayerBodyPose& pose, world::SurfaceMaterial material,
               float expansion = 0.0f) {
-    const Vec3 torsoAxis = game::normalized(pose.chest - pose.pelvis);
-    constexpr int layers = 7;
-    constexpr float pixel = 0.074f;
+    constexpr int layers = 9;
+    constexpr float pixel = 0.058f;
     for (int layer = 0; layer < layers; ++layer) {
         const float t = static_cast<float>(layer) / static_cast<float>(layers - 1);
         const Vec3 center = pose.pelvis * (1.0f - t) + pose.chest * t;
-        const int halfWidth = layer < 2 ? 2 : 3;
-        constexpr int halfDepth = 1;
+        const int halfWidth = layer <= 1 ? 3 : (layer <= 4 ? 3 : 4);
+        const int halfDepth = layer <= 2 ? 1 : 2;
         for (int x = -halfWidth; x <= halfWidth; ++x) {
             for (int z = -halfDepth; z <= halfDepth; ++z) {
                 const bool surface = std::abs(x) == halfWidth || std::abs(z) == halfDepth ||
                                      layer == 0 || layer == layers - 1;
                 if (!surface) continue;
-                const Vec3 p = center + pose.right * (static_cast<float>(x) * (pixel + expansion * 0.12f)) +
-                               torsoAxis * 0.0f + pose.forward * (static_cast<float>(z) * (pixel + expansion * 0.10f));
+                const Vec3 p = center + pose.right * (static_cast<float>(x) * (pixel + expansion * 0.11f)) +
+                               pose.forward * (static_cast<float>(z) * (pixel + expansion * 0.10f));
                 addPixel(mesh, p, pixel + expansion, material);
             }
         }
     }
 
     if (expansion <= 0.0001f && material == world::SurfaceMaterial::CharacterSkin) {
-        // Small stepped protrusions give the bare base body the same readable chest/abdominal planes
-        // as the reference sculpt without turning the silhouette into a smooth capsule.
-        const Vec3 upper = pose.pelvis * 0.30f + pose.chest * 0.70f;
-        addPixel(mesh, upper + pose.right * 0.115f + pose.forward * 0.125f, 0.066f, material);
-        addPixel(mesh, upper - pose.right * 0.115f + pose.forward * 0.125f, 0.066f, material);
-        const Vec3 middle = pose.pelvis * 0.52f + pose.chest * 0.48f;
-        addPixel(mesh, middle + pose.forward * 0.124f, 0.058f, material);
-        addPixel(mesh, middle - pose.up * 0.085f + pose.forward * 0.122f, 0.054f, material);
-        addPixel(mesh, upper + pose.right * 0.13f - pose.forward * 0.125f, 0.060f, material);
-        addPixel(mesh, upper - pose.right * 0.13f - pose.forward * 0.125f, 0.060f, material);
+        const Vec3 upper = pose.pelvis * 0.28f + pose.chest * 0.72f;
+        const Vec3 middle = pose.pelvis * 0.48f + pose.chest * 0.52f;
+        const Vec3 lower = pose.pelvis * 0.68f + pose.chest * 0.32f;
+        for (int side = -1; side <= 1; side += 2) {
+            addPixel(mesh, upper + pose.right * (0.105f * side) + pose.forward * 0.142f, 0.065f, material);
+            addPixel(mesh, upper - pose.up * 0.060f + pose.right * (0.082f * side) + pose.forward * 0.136f, 0.058f, material);
+            addPixel(mesh, middle + pose.right * (0.070f * side) + pose.forward * 0.132f, 0.056f, material);
+            addPixel(mesh, lower + pose.right * (0.062f * side) + pose.forward * 0.126f, 0.052f, material);
+            addPixel(mesh, upper + pose.right * (0.125f * side) - pose.forward * 0.136f, 0.058f, material);
+        }
     }
+}
+
+void addLimbCluster(world::VoxelMesh& mesh, Vec3 center, const PlayerBodyPose& body,
+                    float cubeSize, float spread, world::SurfaceMaterial material) {
+    addPixel(mesh, center + body.right * spread + body.up * spread, cubeSize, material);
+    addPixel(mesh, center - body.right * spread + body.up * spread, cubeSize, material);
+    addPixel(mesh, center + body.right * spread - body.up * spread, cubeSize, material);
+    addPixel(mesh, center - body.right * spread - body.up * spread, cubeSize, material);
 }
 
 void addHand(world::VoxelMesh& mesh, const PlayerBodyPose& body, const ArmPose& arm,
@@ -133,28 +140,45 @@ void addHand(world::VoxelMesh& mesh, const PlayerBodyPose& body, const ArmPose& 
 
 void addArm(world::VoxelMesh& mesh, const PlayerBodyPose& body, const ArmPose& arm,
             world::SurfaceMaterial material, float expansion = 0.0f) {
-    const float upperSize = 0.112f + expansion;
-    const float foreSize = 0.102f + expansion;
-    addVoxelChain(mesh, arm.shoulder, arm.elbow, 5, upperSize, material);
-    addVoxelChain(mesh, arm.elbow, arm.wrist, 5, foreSize, material);
-    addPixel(mesh, arm.shoulder, upperSize * 1.08f, material);
-    addPixel(mesh, arm.elbow, foreSize * 1.08f, material);
+    for (int i = 0; i < 6; ++i) {
+        const float t = static_cast<float>(i) / 5.0f;
+        const Vec3 center = arm.shoulder * (1.0f - t) + arm.elbow * t;
+        addLimbCluster(mesh, center, body, 0.067f + expansion * 0.55f, 0.040f + expansion * 0.18f, material);
+    }
+    for (int i = 0; i < 6; ++i) {
+        const float t = static_cast<float>(i) / 5.0f;
+        const Vec3 center = arm.elbow * (1.0f - t) + arm.wrist * t;
+        addLimbCluster(mesh, center, body, 0.061f + expansion * 0.52f, 0.035f + expansion * 0.16f, material);
+    }
+    addPixel(mesh, arm.shoulder, 0.152f + expansion, material);
+    addPixel(mesh, arm.shoulder - body.up * 0.045f, 0.126f + expansion * 0.8f, material);
+    addPixel(mesh, arm.elbow, 0.112f + expansion * 0.7f, material);
     addHand(mesh, body, arm, material, expansion * 0.55f);
 }
 
 void addLeg(world::VoxelMesh& mesh, const PlayerBodyPose& body, const LegPose& leg,
             world::SurfaceMaterial material, float expansion = 0.0f) {
-    addVoxelChain(mesh, leg.hip, leg.knee, 6, 0.132f + expansion, material);
-    addVoxelChain(mesh, leg.knee, leg.ankle, 6, 0.116f + expansion, material);
-    addPixel(mesh, leg.knee, 0.126f + expansion, material);
+    for (int i = 0; i < 7; ++i) {
+        const float t = static_cast<float>(i) / 6.0f;
+        const Vec3 center = leg.hip * (1.0f - t) + leg.knee * t;
+        addLimbCluster(mesh, center, body, 0.075f + expansion * 0.55f, 0.045f + expansion * 0.18f, material);
+    }
+    for (int i = 0; i < 7; ++i) {
+        const float t = static_cast<float>(i) / 6.0f;
+        const Vec3 center = leg.knee * (1.0f - t) + leg.ankle * t;
+        addLimbCluster(mesh, center, body, 0.066f + expansion * 0.52f, 0.038f + expansion * 0.16f, material);
+    }
+    addPixel(mesh, leg.hip, 0.145f + expansion, material);
+    addPixel(mesh, leg.knee, 0.130f + expansion * 0.75f, material);
 
     const Vec3 footDirection = safeDirection(leg.ankle, leg.foot, body.forward);
-    const Vec3 toe = leg.foot + footDirection * 0.055f;
-    addPixel(mesh, leg.ankle, 0.120f + expansion, material);
-    addPixel(mesh, leg.foot, 0.132f + expansion, material);
-    addPixel(mesh, toe + body.right * 0.045f, 0.094f + expansion * 0.7f, material);
-    addPixel(mesh, toe, 0.096f + expansion * 0.7f, material);
-    addPixel(mesh, toe - body.right * 0.045f, 0.094f + expansion * 0.7f, material);
+    const Vec3 toe = leg.foot + footDirection * 0.075f;
+    addPixel(mesh, leg.ankle, 0.128f + expansion, material);
+    addPixel(mesh, leg.foot, 0.145f + expansion, material);
+    for (int x = -2; x <= 2; ++x) {
+        addPixel(mesh, toe + body.right * (static_cast<float>(x) * 0.038f),
+                 0.075f + expansion * 0.55f, material);
+    }
 }
 
 void addLoincloth(world::VoxelMesh& mesh, const PlayerBodyPose& pose) {

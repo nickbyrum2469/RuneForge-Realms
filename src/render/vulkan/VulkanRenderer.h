@@ -115,8 +115,9 @@ private:
         float eyeX{};
         float eyeY{};
         float eyeZ{};
-        float yaw{};
-        float pitch{};
+        float cameraForwardX{};
+        float cameraForwardY{};
+        float cameraForwardZ{};
         float viewportWidth{1600.0f};
         float viewportHeight{900.0f};
         float selectedMaterial{};
