@@ -41,15 +41,24 @@ void runPolishFoundationTests() {
     assert(!world::isCollidable(world::BlockId::Water));
     assert(!world::isOpaque(world::BlockId::Water));
 
-    const auto wetChunk = world::generation::TerrainGenerator::generateChunk(1337u, {0, 0});
+    // Water is a macro-geography feature. Search a deterministic 9x9 chunk window instead of
+    // requiring the origin chunk itself to be wet for every seed.
     bool sawWater = false;
-    for (int z = 0; z < world::VoxelChunk::sizeZ; ++z) {
-        for (int x = 0; x < world::VoxelChunk::sizeX; ++x) {
-            for (int y = 0; y < world::VoxelChunk::sizeY; ++y) {
-                if (wetChunk.get(x, y, z) == world::BlockId::Water) sawWater = true;
+    bool sawDryLand = false;
+    for (int cz = -4; cz <= 4; ++cz) {
+        for (int cx = -4; cx <= 4; ++cx) {
+            const auto chunk = world::generation::TerrainGenerator::generateChunk(1337u, {cx, cz});
+            for (int z = 0; z < world::VoxelChunk::sizeZ; ++z) {
+                for (int x = 0; x < world::VoxelChunk::sizeX; ++x) {
+                    for (int y = 0; y < world::VoxelChunk::sizeY; ++y) {
+                        const auto block = chunk.get(x, y, z);
+                        sawWater = sawWater || block == world::BlockId::Water;
+                        sawDryLand = sawDryLand || block == world::BlockId::Grass;
+                    }
+                }
             }
         }
     }
-    // The macro generator should produce water in ordinary terrain seeds rather than making it mythical.
     assert(sawWater);
+    assert(sawDryLand);
 }
