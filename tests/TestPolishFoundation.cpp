@@ -19,9 +19,10 @@ void runPolishFoundationTests() {
     cadence.press();
     assert(!cadence.update(0.10f, 0.50f)); // click spam cannot bypass the existing cooldown.
     cadence.release();
-    assert(!cadence.update(0.39f, 0.50f));
+    // Cadence intentionally clamps one simulation step to 250 ms, so advance recovery across frames.
+    assert(!cadence.update(0.25f, 0.50f));
     cadence.press();
-    assert(cadence.update(0.02f, 0.50f));
+    assert(cadence.update(0.16f, 0.50f));
 
     const float dirtHand = game::mining::MiningSystem::strikeInterval(world::BlockId::Dirt);
     const float stoneHand = game::mining::MiningSystem::strikeInterval(world::BlockId::Stone);
