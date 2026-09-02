@@ -26,6 +26,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install shader compiler
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./tools/setup_windows_deps.ps1
       - name: Configure
         run: cmake -S . -B build -A x64 -DRF_BUILD_TESTS=ON
