@@ -26,13 +26,31 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
     game::Vec3 cameraUp = game::normalized(game::cross(cameraForward, cameraRight));
     if (game::lengthSquared(cameraUp) <= 0.000001f) cameraUp = {0.0f, 1.0f, 0.0f};
 
+    const float elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - startTime_).count();
+
     world::VoxelMesh mesh;
     if (player_.thirdPerson()) {
         game::Vec3 bodyForward{cameraForward.x, 0.0f, cameraForward.z};
         bodyForward = game::normalized(bodyForward);
         if (game::lengthSquared(bodyForward) <= 0.000001f) bodyForward = {0.0f, 0.0f, 1.0f};
 
-        auto bodyPose = game::character::PlayerBodyRig::solve(feet, bodyForward, player_.crouching());
+        game::character::BodyMotionState motion;
+        const float speed = player_.horizontalSpeed();
+        motion.locomotionAmount = std::clamp(speed / 4.8f, 0.0f, 1.0f);
+        motion.locomotionPhase = elapsed * (7.2f + motion.locomotionAmount * 1.8f);
+        motion.idlePhase = elapsed * 1.75f;
+
+        // MiningSwing currently owns an exact fixed-length world-space right-arm pose. Freeze the
+        // gait only during its short active window so the shoulder cannot visually detach from a
+        // bobbing torso; normal movement immediately resumes after recovery.
+        if (miningSwing_.pose().active) motion.locomotionAmount = 0.0f;
+
+        auto bodyPose = game::character::PlayerBodyRig::solve(feet,
+                                                               bodyForward,
+                                                               player_.crouching(),
+                                                               nullptr,
+                                                               nullptr,
+                                                               &motion);
         if (miningSwing_.pose().active) bodyPose.rightArm = miningSwing_.pose().rightArm;
 
         const game::character::CharacterAppearance appearance{};
@@ -46,7 +64,6 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
 
         const float speed = player_.horizontalSpeed();
         state.walkAmount = std::clamp(speed / 4.8f, 0.0f, 1.0f);
-        const float elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - startTime_).count();
         state.walkPhase = elapsed * (7.6f + state.walkAmount * 2.2f);
 
         const auto& swing = miningSwing_.pose();
