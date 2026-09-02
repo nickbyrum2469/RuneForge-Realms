@@ -148,6 +148,7 @@ if(WIN32)
         src/app/App.cpp
         src/app/main_windows.cpp
         src/platform/windows/NativeWindow.cpp
+        src/audio/windows/WindowsAudioSystem.cpp
         src/render/vulkan/VulkanRenderer.cpp
         src/render/vulkan/VulkanRendererDevice.cpp
         src/render/vulkan/VulkanRendererSwapchain.cpp
@@ -172,7 +173,7 @@ if(WIN32)
     target_link_libraries(RuneForgeRealms PRIVATE
         runeforge_core
         runeforge_volk
-        d2d1 dwrite windowscodecs ole32 user32 gdi32 shell32
+        d2d1 dwrite windowscodecs ole32 user32 gdi32 shell32 xaudio2
     )
 
     add_custom_command(TARGET RuneForgeRealms POST_BUILD
