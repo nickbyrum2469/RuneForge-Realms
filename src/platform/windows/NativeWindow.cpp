@@ -69,6 +69,9 @@ std::filesystem::path NativeWindow::settingsPath() const {
 bool NativeWindow::create(HINSTANCE instance, int showCommand) {
     instance_ = instance;
     settings_ = core::settings::loadGameSettings(settingsPath());
+    // Audio failure must never prevent the visual game from booting. The semantic event queue remains
+    // valid and can be consumed after a device becomes available again.
+    (void)audioSystem_.initialize();
 
     WNDCLASSEXW wc{};
     wc.cbSize = sizeof(wc);
@@ -107,8 +110,14 @@ int NativeWindow::run() {
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
-        if (mode_ == ViewMode::Frontier && renderer_ && renderer_->initialized()) renderer_->drawFrame();
-        else WaitMessage();
+        if (mode_ == ViewMode::Frontier && renderer_ && renderer_->initialized()) {
+            renderer_->drawFrame();
+            audioSystem_.consume(renderer_->drainAudioEvents(), renderer_->audioListenerPosition());
+            audioSystem_.update();
+        } else {
+            audioSystem_.update();
+            WaitMessage();
+        }
     }
 }
 
@@ -222,8 +231,6 @@ LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
 
         case WM_SETCURSOR:
             if (mode_ == ViewMode::Frontier && mouseCaptured_ && renderer_ && !renderer_->paused()) {
-                // The Vulkan HUD owns the reticle. Drawing IDC_CROSS here created a second moving cursor
-                // that looked like the crosshair was being pulled by mouse velocity.
                 SetCursor(nullptr);
                 return TRUE;
             }
@@ -237,6 +244,7 @@ LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
             inventoryPainter_.reset();
             renderer_.reset();
             painter_.reset();
+            audioSystem_.shutdown();
             PostQuitMessage(0);
             return 0;
 
@@ -291,6 +299,7 @@ void NativeWindow::enterFrontier(bool continueExisting) {
     inventoryPainter_.reset();
     pausePainter_.reset();
     settingsPainter_.reset();
+    if (!audioSystem_.initialized()) (void)audioSystem_.initialize();
     renderer_ = std::make_unique<rf::render::VulkanRenderer>(hwnd_, frontierSavePath(), continueExisting);
     renderer_->applySettings(settings_);
     if (!renderer_->initialize()) {
@@ -429,6 +438,7 @@ void NativeWindow::returnToHub() {
     inventoryPainter_.reset();
     if (renderer_) renderer_->saveNow();
     renderer_.reset();
+    audioSystem_.stopAll();
     releaseMouse();
     mode_ = ViewMode::Hub;
     painter_ = std::make_unique<rf::ui::HubPainter>(hwnd_);
