@@ -2,6 +2,7 @@
 
 #include "game/PlayerController.h"
 #include "game/character/CharacterAppearance.h"
+#include "game/character/CharacterLocomotion.h"
 #include "game/character/PlayerBodyRig.h"
 #include "render/scene/CharacterVoxelOrientation.h"
 #include "render/scene/VoxelCharacterBuilder.h"
@@ -98,6 +99,23 @@ void runCollisionResolvedLocomotionRegression() {
     assert(player.actualHorizontalSpeed() == 0.0f);
 }
 
+void runGaitDistanceCalibrationRegression() {
+    using namespace rf;
+
+    constexpr float twoPi = 6.2831853071795864769f;
+    const float cycleDistance = twoPi / game::character::gaitPhasePerMeter;
+
+    // The old 1.90 rad/m cadence required ~3.31 m of actual travel for one cycle and visibly slid
+    // the feet through the ground. Lock the calibrated athletic stride near 1.31 m/cycle instead.
+    assert(cycleDistance > 1.25f);
+    assert(cycleDistance < 1.38f);
+    assert(std::abs(game::character::locomotionPhaseFromDistance(cycleDistance) - twoPi) < 0.0001f);
+
+    // Half a stride cycle must come from half the actual traveled distance; cadence cannot fall back
+    // to wall-clock time or requested input speed.
+    assert(std::abs(game::character::locomotionPhaseFromDistance(cycleDistance * 0.5f) - twoPi * 0.5f) < 0.0001f);
+}
+
 } // namespace
 
 int main() {
@@ -113,6 +131,7 @@ int main() {
     runCharacterRigTests();
     runCharacterVoxelOrientationRegression();
     runCollisionResolvedLocomotionRegression();
+    runGaitDistanceCalibrationRegression();
 
     std::cout << "RuneForge 0.5.0 commercial-foundation tests passed\n";
     return 0;
