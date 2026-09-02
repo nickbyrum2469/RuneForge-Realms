@@ -3,6 +3,7 @@
 #include "world/GreedyMesher.h"
 #include "world/WorldEdit.h"
 #include "world/chunks/ChunkManager.h"
+#include "world/fluid/WaterSimulation.h"
 #include "world/micro/MicroVoxelEdit.h"
 
 #include <cstddef>
@@ -37,9 +38,17 @@ public:
 
     [[nodiscard]] BlockId getBlock(int x, int y, int z) const noexcept;
     bool setBlock(int x, int y, int z, BlockId block, bool recordEdit = true);
+    void markBlockVisualDirty(BlockCoord position) noexcept {
+        markMeshNeighborhoodDirty(chunkFromBlock(position.x, position.z), localBlockX(position.x), localBlockZ(position.z));
+    }
     [[nodiscard]] MicroChipResult chipBlock(BlockCoord position, float worldHitX, float worldHitY,
                                             float worldHitZ, int radiusCells);
     [[nodiscard]] const micro::MicroVoxelState* microState(BlockCoord position) const noexcept;
+    [[nodiscard]] std::uint8_t waterLevelAt(BlockCoord position) const noexcept {
+        return waterSimulation_.levelAt(*this, position);
+    }
+    [[nodiscard]] std::size_t activeWaterCellCount() const noexcept { return waterSimulation_.activeCount(); }
+    [[nodiscard]] std::size_t dynamicWaterCellCount() const noexcept { return waterSimulation_.dynamicCellCount(); }
     [[nodiscard]] int topSolidY(int x, int z) const noexcept;
     [[nodiscard]] bool collidesAabb(float minX, float minY, float minZ,
                                     float maxX, float maxY, float maxZ) const noexcept;
@@ -86,6 +95,7 @@ private:
     std::uint32_t growthEpoch_{};
     ChunkCoord streamCenter_{};
     ChunkManager chunks_;
+    fluid::WaterSimulation waterSimulation_;
     std::map<ChunkCoord, std::map<BlockCoord, BlockId>> editsByChunk_;
     std::map<ChunkCoord, std::map<BlockCoord, PromotedBlock>> microByChunk_;
     std::vector<ChunkCoord> recentlyUnloaded_;

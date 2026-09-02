@@ -24,7 +24,8 @@ struct GrowthNode {
 class GrassGrowth {
 public:
     static constexpr int nodeResolution = 8;
-    static constexpr float growthStepSeconds = 22.0f;
+    // World vegetation is reconsidered at a coarse random-tick cadence, never from player input.
+    static constexpr float growthStepSeconds = 8.0f;
 
     [[nodiscard]] static GrowthNode sample(std::uint32_t worldSeed, BlockCoord block,
                                            int nodeX, int nodeZ, float worldAgeSeconds) noexcept;

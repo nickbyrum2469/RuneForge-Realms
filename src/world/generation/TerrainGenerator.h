@@ -9,6 +9,8 @@ namespace rf::world::generation {
 
 class TerrainGenerator {
 public:
+    static constexpr int waterLevel = 5;
+
     [[nodiscard]] static VoxelChunk generateChunk(std::uint32_t seed, ChunkCoord coord);
     [[nodiscard]] static int surfaceHeight(std::uint32_t seed, int worldX, int worldZ) noexcept;
     [[nodiscard]] static bool treeRootAt(std::uint32_t seed, int worldX, int worldZ) noexcept;

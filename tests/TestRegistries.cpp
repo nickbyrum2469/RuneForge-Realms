@@ -25,20 +25,38 @@ void runRegistryTests() {
     const auto& stone = rf::world::blocks::BlockRegistry::get(rf::world::BlockId::Stone);
     assert(stone.name == "Stone");
     assert(stone.preferredTool == rf::world::blocks::ToolClass::Pickaxe);
+    assert(stone.minimumToolTier == 1);
     assert(stone.hardness > 1.0f);
+
+    const auto& waterBlock = rf::world::blocks::BlockRegistry::get(rf::world::BlockId::Water);
+    assert(waterBlock.name == "Water");
+    assert(!waterBlock.solid);
+    assert(waterBlock.transparent);
+
+    const auto& materials = rf::render::materials::MaterialRegistry::all();
+    assert(materials.size() == rf::render::materials::MaterialRegistry::materialCount);
+    assert(materials.size() == static_cast<std::size_t>(rf::world::SurfaceMaterial::CharacterMetal) + 1u);
 
     const auto& material = rf::render::materials::MaterialRegistry::get(rf::world::SurfaceMaterial::Stone);
     assert(material.name == "fractured_stone");
-    assert(material.detailProfile == "fractured_plate_rock");
+    assert(material.detailProfile == "natural_plate_rock");
     assert(material.reliefStrength > 0.5f);
-    assert(rf::render::materials::MaterialRegistry::all().size() == 10);
 
     const auto& flower = rf::render::materials::MaterialRegistry::get(rf::world::SurfaceMaterial::FlowerBlue);
     assert(flower.name == "flower_blue");
     assert(flower.emissive > 0.0f);
 
+    const auto& waterMaterial = rf::render::materials::MaterialRegistry::get(rf::world::SurfaceMaterial::Water);
+    assert(waterMaterial.name == "frontier_water");
+    assert(waterMaterial.roughness < 0.3f);
+
+    const auto& heroMetal = rf::render::materials::MaterialRegistry::get(rf::world::SurfaceMaterial::CharacterMetal);
+    assert(heroMetal.name == "hero_steel");
+    assert(heroMetal.metallic > 0.5f);
+
     assert(rf::world::surfaceMaterial(rf::world::BlockId::Grass, 1, +1) == rf::world::SurfaceMaterial::GrassTop);
     assert(rf::world::surfaceMaterial(rf::world::BlockId::Grass, 0, +1) == rf::world::SurfaceMaterial::GrassSide);
     assert(rf::world::surfaceMaterial(rf::world::BlockId::Wood, 1, +1) == rf::world::SurfaceMaterial::WoodCut);
     assert(rf::world::surfaceMaterial(rf::world::BlockId::Wood, 2, +1) == rf::world::SurfaceMaterial::WoodBark);
+    assert(rf::world::surfaceMaterial(rf::world::BlockId::Water, 1, +1) == rf::world::SurfaceMaterial::Water);
 }

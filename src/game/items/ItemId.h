@@ -36,6 +36,7 @@ enum class ItemId : std::uint16_t {
         case world::BlockId::Stone: return ItemId::StoneBlock;
         case world::BlockId::Wood: return ItemId::OakLog;
         case world::BlockId::Leaves: return ItemId::Leaves;
+        case world::BlockId::Water:
         case world::BlockId::Air: break;
     }
     return std::nullopt;

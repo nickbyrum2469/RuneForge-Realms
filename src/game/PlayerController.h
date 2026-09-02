@@ -15,6 +15,7 @@ public:
     void requestJump() noexcept { jumpRequested_ = true; }
     void addLook(float deltaX, float deltaY) noexcept;
     void update(float deltaSeconds, const world::FrontierWorld& world) noexcept;
+    void setMouseSensitivity(float scale) noexcept;
 
     [[nodiscard]] Vec3 position() const noexcept { return position_; }
     [[nodiscard]] Vec3 eyePosition() const noexcept { return {position_.x, position_.y + eyeHeight(), position_.z}; }
@@ -34,6 +35,7 @@ private:
     Vec3 velocity_{};
     float yaw_{};
     float pitch_{-0.08f};
+    float mouseSensitivity_{0.00215f};
     bool forward_{};
     bool backward_{};
     bool left_{};

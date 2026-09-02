@@ -9,7 +9,7 @@ namespace rf::world::blocks {
 
 class BlockRegistry {
 public:
-    static constexpr std::size_t blockCount = 6;
+    static constexpr std::size_t blockCount = 7;
 
     [[nodiscard]] static const BlockDefinition& get(BlockId id) noexcept;
     [[nodiscard]] static const std::array<BlockDefinition, blockCount>& all() noexcept;

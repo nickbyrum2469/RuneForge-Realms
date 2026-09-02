@@ -8,3 +8,4 @@ void runCullingTests();
 void runMicroMiningTests();
 void runInventoryGrowthTests();
 void runDropTests();
+void runPolishFoundationTests();

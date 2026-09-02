@@ -11,7 +11,8 @@ int main() {
     runMicroMiningTests();
     runInventoryGrowthTests();
     runDropTests();
+    runPolishFoundationTests();
 
-    std::cout << "RuneForge 0.4.0 visual-survival tests passed\n";
+    std::cout << "RuneForge 0.5.0 commercial-foundation tests passed\n";
     return 0;
 }

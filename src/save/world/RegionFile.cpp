@@ -96,7 +96,7 @@ std::vector<rf::world::BlockEdit> RegionFile::readOne(const std::filesystem::pat
         int block = 0;
         input >> edit.position.x >> edit.position.y >> edit.position.z >> block;
         if (!input || block < static_cast<int>(rf::world::BlockId::Air) ||
-            block > static_cast<int>(rf::world::BlockId::Leaves)) return {};
+            block > static_cast<int>(rf::world::BlockId::Water)) return {};
         if (regionForBlock(edit.position.x, edit.position.z) != coord) return {};
         edit.block = static_cast<rf::world::BlockId>(block);
         result.push_back(edit);

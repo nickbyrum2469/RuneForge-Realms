@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(RuneForgeRealms VERSION 0.4.0 LANGUAGES C CXX)
+project(RuneForgeRealms VERSION 0.5.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,11 +13,13 @@ add_library(runeforge_core STATIC
     src/core/Version.cpp
     src/core/HubModel.cpp
     src/core/jobs/JobSystem.cpp
+    src/core/settings/GameSettings.cpp
     src/world/VoxelChunk.cpp
     src/world/GreedyMesher.cpp
     src/world/chunks/ChunkManager.cpp
     src/world/generation/TerrainGenerator.cpp
     src/world/blocks/BlockRegistry.cpp
+    src/world/fluid/WaterSimulation.cpp
     src/world/micro/MicroVoxelState.cpp
     src/world/micro/MicroVoxelEdit.cpp
     src/world/meshing/MicroVoxelMesher.cpp
@@ -25,12 +27,18 @@ add_library(runeforge_core STATIC
     src/world/growth/GrassGrowth.cpp
     src/world/FrontierWorld.cpp
     src/game/PlayerController.cpp
+    src/game/audio/AudioEventQueue.cpp
     src/game/inventory/Inventory.cpp
     src/game/drops/DropSystem.cpp
+    src/game/interaction/MiningSwing.cpp
+    src/game/mining/MiningCadence.cpp
     src/game/mining/MiningSystem.cpp
+    src/game/particles/ParticleSystem.cpp
     src/render/materials/MaterialRegistry.cpp
     src/render/scene/ChunkCulling.cpp
     src/render/scene/DropMeshBuilder.cpp
+    src/render/scene/ParticleMeshBuilder.cpp
+    src/render/scene/FirstPersonBodyBuilder.cpp
     src/save/FrontierSave.cpp
     src/save/world/RegionFile.cpp
     src/save/world/MicroRegionFile.cpp
@@ -98,31 +106,37 @@ if(WIN32)
     endif()
 
     set(RF_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/voxel_scene.hlsl")
+    set(RF_WATER_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/water_scene.hlsl")
+    set(RF_CHARACTER_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/character_scene.hlsl")
     set(RF_SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
     set(RF_VERTEX_SPV "${RF_SHADER_OUTPUT_DIR}/voxel_scene.vert.spv")
     set(RF_FRAGMENT_SPV "${RF_SHADER_OUTPUT_DIR}/voxel_scene.frag.spv")
     set(RF_FULLSCREEN_VERTEX_SPV "${RF_SHADER_OUTPUT_DIR}/fullscreen.vert.spv")
     set(RF_SKY_FRAGMENT_SPV "${RF_SHADER_OUTPUT_DIR}/sky.frag.spv")
     set(RF_HUD_FRAGMENT_SPV "${RF_SHADER_OUTPUT_DIR}/hud.frag.spv")
+    set(RF_WATER_FRAGMENT_SPV "${RF_SHADER_OUTPUT_DIR}/water.frag.spv")
+    set(RF_CHARACTER_FRAGMENT_SPV "${RF_SHADER_OUTPUT_DIR}/character.frag.spv")
 
-    function(rf_compile_shader output profile entry description)
+    function(rf_compile_shader output profile entry source description)
         add_custom_command(
             OUTPUT "${output}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${RF_SHADER_OUTPUT_DIR}"
             COMMAND "${RF_DXC_EXECUTABLE}" -spirv -T ${profile} -E ${entry}
                     -fspv-target-env=vulkan1.3 -fvk-use-dx-layout
-                    -Fo "${output}" "${RF_SHADER_SOURCE}"
-            DEPENDS "${RF_SHADER_SOURCE}"
+                    -Fo "${output}" "${source}"
+            DEPENDS "${source}"
             VERBATIM
             COMMENT "${description}"
         )
     endfunction()
 
-    rf_compile_shader("${RF_VERTEX_SPV}" vs_6_6 VSMain "Compiling RuneForge voxel vertex shader")
-    rf_compile_shader("${RF_FRAGMENT_SPV}" ps_6_6 PSMain "Compiling RuneForge hero material shader")
-    rf_compile_shader("${RF_FULLSCREEN_VERTEX_SPV}" vs_6_6 VSFullscreen "Compiling RuneForge fullscreen vertex shader")
-    rf_compile_shader("${RF_SKY_FRAGMENT_SPV}" ps_6_6 PSSky "Compiling RuneForge procedural sky shader")
-    rf_compile_shader("${RF_HUD_FRAGMENT_SPV}" ps_6_6 PSHud "Compiling RuneForge survival HUD shader")
+    rf_compile_shader("${RF_VERTEX_SPV}" vs_6_6 VSMain "${RF_SHADER_SOURCE}" "Compiling RuneForge voxel vertex shader")
+    rf_compile_shader("${RF_FRAGMENT_SPV}" ps_6_6 PSMain "${RF_SHADER_SOURCE}" "Compiling RuneForge hero terrain material shader")
+    rf_compile_shader("${RF_FULLSCREEN_VERTEX_SPV}" vs_6_6 VSFullscreen "${RF_SHADER_SOURCE}" "Compiling RuneForge fullscreen vertex shader")
+    rf_compile_shader("${RF_SKY_FRAGMENT_SPV}" ps_6_6 PSSky "${RF_SHADER_SOURCE}" "Compiling RuneForge procedural sky shader")
+    rf_compile_shader("${RF_HUD_FRAGMENT_SPV}" ps_6_6 PSHud "${RF_SHADER_SOURCE}" "Compiling RuneForge survival HUD shader")
+    rf_compile_shader("${RF_WATER_FRAGMENT_SPV}" ps_6_6 PSWater "${RF_WATER_SHADER_SOURCE}" "Compiling RuneForge stylized water shader")
+    rf_compile_shader("${RF_CHARACTER_FRAGMENT_SPV}" ps_6_6 PSCharacter "${RF_CHARACTER_SHADER_SOURCE}" "Compiling RuneForge character material shader")
 
     add_custom_target(runeforge_shaders DEPENDS
         "${RF_VERTEX_SPV}"
@@ -130,22 +144,30 @@ if(WIN32)
         "${RF_FULLSCREEN_VERTEX_SPV}"
         "${RF_SKY_FRAGMENT_SPV}"
         "${RF_HUD_FRAGMENT_SPV}"
+        "${RF_WATER_FRAGMENT_SPV}"
+        "${RF_CHARACTER_FRAGMENT_SPV}"
     )
 
     add_executable(RuneForgeRealms WIN32
         src/app/App.cpp
         src/app/main_windows.cpp
         src/platform/windows/NativeWindow.cpp
+        src/audio/windows/WindowsAudioSystem.cpp
         src/render/vulkan/VulkanRenderer.cpp
         src/render/vulkan/VulkanRendererDevice.cpp
         src/render/vulkan/VulkanRendererSwapchain.cpp
         src/render/vulkan/VulkanRendererPipeline.cpp
         src/render/vulkan/VulkanRendererMesh.cpp
         src/render/vulkan/VulkanRendererDrops.cpp
+        src/render/vulkan/VulkanRendererParticles.cpp
+        src/render/vulkan/VulkanRendererFirstPerson.cpp
         src/ui/HubLayout.cpp
         src/ui/HubPainter.cpp
         src/ui/inventory/InventoryLayout.cpp
         src/ui/inventory/InventoryPainter.cpp
+        src/ui/native/NativeUiSurface.cpp
+        src/ui/menus/PauseMenuPainter.cpp
+        src/ui/settings/SettingsPainter.cpp
     )
     add_dependencies(RuneForgeRealms runeforge_shaders)
     target_include_directories(RuneForgeRealms PRIVATE src)
@@ -155,7 +177,7 @@ if(WIN32)
     target_link_libraries(RuneForgeRealms PRIVATE
         runeforge_core
         runeforge_volk
-        d2d1 dwrite windowscodecs ole32 user32 gdi32 shell32
+        d2d1 dwrite windowscodecs ole32 user32 gdi32 shell32 xaudio2
     )
 
     add_custom_command(TARGET RuneForgeRealms POST_BUILD
@@ -170,6 +192,10 @@ if(WIN32)
                 "$<TARGET_FILE_DIR:RuneForgeRealms>/shaders/sky.frag.spv"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RF_HUD_FRAGMENT_SPV}"
                 "$<TARGET_FILE_DIR:RuneForgeRealms>/shaders/hud.frag.spv"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RF_WATER_FRAGMENT_SPV}"
+                "$<TARGET_FILE_DIR:RuneForgeRealms>/shaders/water.frag.spv"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RF_CHARACTER_FRAGMENT_SPV}"
+                "$<TARGET_FILE_DIR:RuneForgeRealms>/shaders/character.frag.spv"
         VERBATIM
     )
 
@@ -191,6 +217,8 @@ if(WIN32)
         "${RF_FULLSCREEN_VERTEX_SPV}"
         "${RF_SKY_FRAGMENT_SPV}"
         "${RF_HUD_FRAGMENT_SPV}"
+        "${RF_WATER_FRAGMENT_SPV}"
+        "${RF_CHARACTER_FRAGMENT_SPV}"
         DESTINATION runtime/shaders
     )
 endif()
@@ -207,6 +235,7 @@ if(RF_BUILD_TESTS)
         tests/TestMicroMining.cpp
         tests/TestInventoryGrowth.cpp
         tests/TestDrops.cpp
+        tests/TestPolishFoundation.cpp
     )
     target_link_libraries(runeforge_core_tests PRIVATE runeforge_core)
     add_test(NAME runeforge_core_tests COMMAND runeforge_core_tests)

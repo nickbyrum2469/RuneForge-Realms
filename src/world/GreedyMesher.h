@@ -1,6 +1,7 @@
 #pragma once
 
 #include "world/VoxelChunk.h"
+#include "world/WorldEdit.h"
 #include "world/micro/MicroBlockSnapshot.h"
 
 #include <cstdint>
@@ -9,6 +10,13 @@
 
 namespace rf::world {
 
+inline constexpr std::uint32_t surfaceMaterialMask = 0x000000ffu;
+inline constexpr std::uint32_t damageStageShift = 8u;
+inline constexpr std::uint32_t packMaterial(SurfaceMaterial material, std::uint8_t damageStage = 0) noexcept {
+    return static_cast<std::uint32_t>(material) |
+           (static_cast<std::uint32_t>(damageStage) << damageStageShift);
+}
+
 struct MeshVertex {
     float x{};
     float y{};
@@ -16,6 +24,7 @@ struct MeshVertex {
     float nx{};
     float ny{};
     float nz{};
+    // Low 8 bits are SurfaceMaterial. Bits 8..15 carry persistent structural damage stage.
     std::uint32_t material{};
 };
 
@@ -28,10 +37,15 @@ struct VoxelMesh {
     void append(const VoxelMesh& source, float offsetX, float offsetY, float offsetZ);
 };
 
+struct DamageVisualState {
+    BlockCoord position{};
+    std::uint8_t stage{}; // 0 pristine, 1..5 progressive structural fracture.
+};
+
 // Owns an immutable chunk snapshot plus the horizontal neighborhood needed for safe
 // background meshing. Persistent damaged blocks and temporary full-resolution halo blocks
-// live in microBlocks. The same 8x8x8 visual grid is used before and after damage so a hit
-// never causes an obvious resolution switch.
+// live in microBlocks. damageBlocks carries visual state for every structurally damaged block;
+// it is independent of whichever block the player is currently targeting.
 struct ChunkMeshingSnapshot {
     VoxelChunk center;
     std::optional<VoxelChunk> negativeX;
@@ -39,6 +53,7 @@ struct ChunkMeshingSnapshot {
     std::optional<VoxelChunk> negativeZ;
     std::optional<VoxelChunk> positiveZ;
     std::vector<micro::MicroBlockSnapshot> microBlocks;
+    std::vector<DamageVisualState> damageBlocks;
     std::uint32_t worldSeed{};
     float worldAgeSeconds{};
     int worldOriginX{};

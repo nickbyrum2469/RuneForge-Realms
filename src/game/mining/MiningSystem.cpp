@@ -40,30 +40,53 @@ int MiningSystem::microChipRadius(world::BlockId block, MiningMode mode) noexcep
             case world::BlockId::Dirt:
             case world::BlockId::Stone:
             case world::BlockId::Wood: return 1;
+            case world::BlockId::Water:
             case world::BlockId::Air: return 0;
         }
     }
-    // Mixed mode chips just enough to show impact while preserving the recognizable block
-    // until its ordinary mining-health threshold is reached.
-    return 1;
+    return block == world::BlockId::Water || block == world::BlockId::Air ? 0 : 1;
+}
+
+float MiningSystem::toolEfficiency(const world::blocks::BlockDefinition& definition,
+                                   const MiningToolContext& tool) noexcept {
+    float efficiency = std::max(tool.powerMultiplier, 0.05f);
+    const bool preferred = definition.preferredTool == world::blocks::ToolClass::Hand ||
+                           definition.preferredTool == tool.tool;
+    if (!preferred) efficiency *= definition.wrongToolEfficiency;
+    if (tool.tier < definition.minimumToolTier) {
+        const int deficit = static_cast<int>(definition.minimumToolTier) - static_cast<int>(tool.tier);
+        for (int i = 0; i < deficit; ++i) efficiency *= 0.45f;
+    }
+    return std::clamp(efficiency, 0.03f, 5.0f);
+}
+
+float MiningSystem::strikeInterval(world::BlockId block, const MiningToolContext& tool) noexcept {
+    const auto& definition = world::blocks::BlockRegistry::get(block);
+    const float speed = std::clamp(tool.speedMultiplier, 0.15f, 6.0f);
+    // Wrong or under-tier tools are not only weaker; they also recover more slowly against hard material.
+    const float efficiency = toolEfficiency(definition, tool);
+    const float recoveryPenalty = efficiency < 0.75f ? (1.0f + (0.75f - efficiency) * 0.60f) : 1.0f;
+    return std::clamp(definition.baseStrikeIntervalSeconds * recoveryPenalty / speed, 0.10f, 3.0f);
 }
 
 MiningOutcome MiningSystem::strike(world::FrontierWorld& world, const world::RaycastHit& hit,
-                                   float toolPower) {
+                                   const MiningToolContext& tool) {
     MiningOutcome result;
     if (!hit.hit) return result;
 
     const world::BlockId block = world.getBlock(hit.block.x, hit.block.y, hit.block.z);
-    if (block == world::BlockId::Air) return result;
+    if (block == world::BlockId::Air || world::isFluid(block)) return result;
     result.block = block;
 
     const auto& definition = world::blocks::BlockRegistry::get(block);
-    const float hardness = std::max(definition.hardness, 0.08f);
-    const float power = std::max(toolPower, 0.05f);
+    const float efficiency = toolEfficiency(definition, tool);
 
     if (mode_ == MiningMode::Micro) {
-        const auto chip = world.chipBlock(hit.block, hit.worldX, hit.worldY, hit.worldZ,
-                                         microChipRadius(block, mode_));
+        // Precision carving is still tool-limited: a poor tool removes a smaller physical volume.
+        int radius = microChipRadius(block, mode_);
+        if (efficiency < 0.22f) radius = 0;
+        if (radius <= 0) return result;
+        const auto chip = world.chipBlock(hit.block, hit.worldX, hit.worldY, hit.worldZ, radius);
         result.affected = chip.changed;
         result.microCellsRemoved = chip.removedCells;
         result.brokeBlock = chip.emptied;
@@ -72,23 +95,25 @@ MiningOutcome MiningSystem::strike(world::FrontierWorld& world, const world::Ray
         return result;
     }
 
-    // A hand strike is intentionally several hits even on dirt/grass. Tool power later plugs
-    // into this same equation without changing mining behavior or save representation.
     float& damage = damage_[hit.block];
-    damage += std::clamp((0.34f * power) / (hardness + 0.34f), 0.06f, 0.72f);
+    const float increment = definition.damagePerPreferredStrike * efficiency;
+    damage += std::clamp(increment, 0.01f, 0.65f);
 
     if (mode_ == MiningMode::Mixed) {
-        const auto chip = world.chipBlock(hit.block, hit.worldX, hit.worldY, hit.worldZ,
-                                         microChipRadius(block, mode_));
-        result.microCellsRemoved = chip.removedCells;
-        result.affected = chip.changed;
-        // Losing a meaningful percentage of real matter contributes modestly to structural damage.
-        if (chip.changed) damage += static_cast<float>(chip.removedCells) / 512.0f * 0.42f;
-        if (chip.emptied) {
-            result.brokeBlock = true;
-            result.damageProgress = 1.0f;
-            damage_.erase(hit.block);
-            return result;
+        // Mixed mode gives tactile chips, but the physical chip volume is intentionally small so the
+        // recognizable block survives until structural mining health gives way.
+        const int radius = efficiency >= 0.18f ? microChipRadius(block, mode_) : 0;
+        if (radius > 0) {
+            const auto chip = world.chipBlock(hit.block, hit.worldX, hit.worldY, hit.worldZ, radius);
+            result.microCellsRemoved = chip.removedCells;
+            result.affected = chip.changed;
+            if (chip.changed) damage += static_cast<float>(chip.removedCells) / 512.0f * 0.28f;
+            if (chip.emptied) {
+                result.brokeBlock = true;
+                result.damageProgress = 1.0f;
+                damage_.erase(hit.block);
+                return result;
+            }
         }
     }
 

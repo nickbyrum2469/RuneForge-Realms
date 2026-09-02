@@ -47,24 +47,32 @@ VkShaderModule VulkanRenderer::createShaderModule(const std::vector<std::uint32_
 bool VulkanRenderer::createPipeline() {
     const auto worldVertexCode = readSpirv(shaderPath(L"voxel_scene.vert.spv"));
     const auto worldFragmentCode = readSpirv(shaderPath(L"voxel_scene.frag.spv"));
+    const auto characterFragmentCode = readSpirv(shaderPath(L"character.frag.spv"));
+    const auto waterFragmentCode = readSpirv(shaderPath(L"water.frag.spv"));
     const auto fullscreenVertexCode = readSpirv(shaderPath(L"fullscreen.vert.spv"));
     const auto skyFragmentCode = readSpirv(shaderPath(L"sky.frag.spv"));
     const auto hudFragmentCode = readSpirv(shaderPath(L"hud.frag.spv"));
-    if (worldVertexCode.empty() || worldFragmentCode.empty() || fullscreenVertexCode.empty() ||
-        skyFragmentCode.empty() || hudFragmentCode.empty()) {
+    if (worldVertexCode.empty() || worldFragmentCode.empty() || characterFragmentCode.empty() ||
+        waterFragmentCode.empty() || fullscreenVertexCode.empty() || skyFragmentCode.empty() ||
+        hudFragmentCode.empty()) {
         setError(L"Compiled RuneForge Vulkan visual shaders were not found beside the executable.");
         return false;
     }
 
     const VkShaderModule worldVertex = createShaderModule(worldVertexCode);
     const VkShaderModule worldFragment = createShaderModule(worldFragmentCode);
+    const VkShaderModule characterFragment = createShaderModule(characterFragmentCode);
+    const VkShaderModule waterFragment = createShaderModule(waterFragmentCode);
     const VkShaderModule fullscreenVertex = createShaderModule(fullscreenVertexCode);
     const VkShaderModule skyFragment = createShaderModule(skyFragmentCode);
     const VkShaderModule hudFragment = createShaderModule(hudFragmentCode);
-    if (worldVertex == VK_NULL_HANDLE || worldFragment == VK_NULL_HANDLE || fullscreenVertex == VK_NULL_HANDLE ||
-        skyFragment == VK_NULL_HANDLE || hudFragment == VK_NULL_HANDLE) {
+    if (worldVertex == VK_NULL_HANDLE || worldFragment == VK_NULL_HANDLE ||
+        characterFragment == VK_NULL_HANDLE || waterFragment == VK_NULL_HANDLE ||
+        fullscreenVertex == VK_NULL_HANDLE || skyFragment == VK_NULL_HANDLE || hudFragment == VK_NULL_HANDLE) {
         if (worldVertex != VK_NULL_HANDLE) vkDestroyShaderModule(device_, worldVertex, nullptr);
         if (worldFragment != VK_NULL_HANDLE) vkDestroyShaderModule(device_, worldFragment, nullptr);
+        if (characterFragment != VK_NULL_HANDLE) vkDestroyShaderModule(device_, characterFragment, nullptr);
+        if (waterFragment != VK_NULL_HANDLE) vkDestroyShaderModule(device_, waterFragment, nullptr);
         if (fullscreenVertex != VK_NULL_HANDLE) vkDestroyShaderModule(device_, fullscreenVertex, nullptr);
         if (skyFragment != VK_NULL_HANDLE) vkDestroyShaderModule(device_, skyFragment, nullptr);
         if (hudFragment != VK_NULL_HANDLE) vkDestroyShaderModule(device_, hudFragment, nullptr);
@@ -83,6 +91,8 @@ bool VulkanRenderer::createPipeline() {
         vkDestroyShaderModule(device_, hudFragment, nullptr);
         vkDestroyShaderModule(device_, skyFragment, nullptr);
         vkDestroyShaderModule(device_, fullscreenVertex, nullptr);
+        vkDestroyShaderModule(device_, waterFragment, nullptr);
+        vkDestroyShaderModule(device_, characterFragment, nullptr);
         vkDestroyShaderModule(device_, worldFragment, nullptr);
         vkDestroyShaderModule(device_, worldVertex, nullptr);
         setError(L"RuneForge pipeline layout creation failed", result);
@@ -138,6 +148,11 @@ bool VulkanRenderer::createPipeline() {
     depthWorld.depthTestEnable = VK_TRUE;
     depthWorld.depthWriteEnable = VK_TRUE;
     depthWorld.depthCompareOp = VK_COMPARE_OP_LESS;
+
+    VkPipelineDepthStencilStateCreateInfo depthWater{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    depthWater.depthTestEnable = VK_TRUE;
+    depthWater.depthWriteEnable = VK_FALSE;
+    depthWater.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
     VkPipelineColorBlendAttachmentState opaqueAttachment{};
     opaqueAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
@@ -197,6 +212,14 @@ bool VulkanRenderer::createPipeline() {
                                 &worldVertexInput, &depthWorld, &opaqueBlend, pipeline_);
     }
     if (result == VK_SUCCESS) {
+        result = createGraphics(worldVertex, "VSMain", characterFragment, "PSCharacter",
+                                &worldVertexInput, &depthWorld, &opaqueBlend, characterPipeline_);
+    }
+    if (result == VK_SUCCESS) {
+        result = createGraphics(worldVertex, "VSMain", waterFragment, "PSWater",
+                                &worldVertexInput, &depthWater, &alphaBlend, waterPipeline_);
+    }
+    if (result == VK_SUCCESS) {
         result = createGraphics(fullscreenVertex, "VSFullscreen", hudFragment, "PSHud",
                                 &fullscreenVertexInput, &depthDisabled, &alphaBlend, hudPipeline_);
     }
@@ -204,6 +227,8 @@ bool VulkanRenderer::createPipeline() {
     vkDestroyShaderModule(device_, hudFragment, nullptr);
     vkDestroyShaderModule(device_, skyFragment, nullptr);
     vkDestroyShaderModule(device_, fullscreenVertex, nullptr);
+    vkDestroyShaderModule(device_, waterFragment, nullptr);
+    vkDestroyShaderModule(device_, characterFragment, nullptr);
     vkDestroyShaderModule(device_, worldFragment, nullptr);
     vkDestroyShaderModule(device_, worldVertex, nullptr);
 
@@ -272,7 +297,18 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, std::uin
     vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-    drawSceneMeshes(commandBuffer);
+    drawSceneMeshes(commandBuffer, false);
+    drawBlockParticles(commandBuffer);
+
+    // Character shading is isolated from terrain so equipment/skin/cloth can evolve without
+    // destabilizing the voxel material library. Geometry still uses the same camera transform.
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, characterPipeline_);
+    drawFirstPersonBody(commandBuffer);
+
+    // Transparent water is isolated from the opaque terrain index stream. That avoids drawing the
+    // whole world twice and gives fluids independent blend/depth policy without destabilizing terrain.
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipeline_);
+    drawSceneMeshes(commandBuffer, true);
 
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, hudPipeline_);
     vkCmdDraw(commandBuffer, 3, 1, 0, 0);
