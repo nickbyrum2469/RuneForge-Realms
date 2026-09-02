@@ -192,10 +192,16 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
     const float stepTravel = locomotion * 0.105f;
     const float rightLift = locomotion * std::max(walk, 0.0f) * 0.052f;
     const float leftLift = locomotion * std::max(-walk, 0.0f) * 0.052f;
-    const Vec3 rightAnkle = feet + pose.right * (0.145f + crouchFootSpread) +
+
+    // The reference hero stands on a visibly broader, planted base than the old near-hip-width pose.
+    // Keep the pelvis narrow for the V-taper, but place the ankles farther out so the thighs taper
+    // into a stable athletic stance. This is local character geometry only; it cannot rotate or move
+    // terrain/world space, and the two-bone solver still preserves exact thigh/shin lengths.
+    constexpr float referenceAnkleHalfSpan = 0.165f;
+    const Vec3 rightAnkle = feet + pose.right * (referenceAnkleHalfSpan + crouchFootSpread) +
                             pose.forward * (crouch * 0.09f + walk * stepTravel) +
                             pose.up * (0.075f + rightLift);
-    const Vec3 leftAnkle = feet - pose.right * (0.145f + crouchFootSpread) +
+    const Vec3 leftAnkle = feet - pose.right * (referenceAnkleHalfSpan + crouchFootSpread) +
                            pose.forward * (crouch * 0.09f - walk * stepTravel) +
                            pose.up * (0.075f + leftLift);
     pose.rightLeg = solveLeg(rightHip, rightAnkle, pose.forward, pose.right, true);
