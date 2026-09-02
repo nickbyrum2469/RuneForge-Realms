@@ -107,6 +107,7 @@ if(WIN32)
 
     set(RF_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/voxel_scene.hlsl")
     set(RF_WATER_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/water_scene.hlsl")
+    set(RF_CHARACTER_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/shaders/character_scene.hlsl")
     set(RF_SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
     set(RF_VERTEX_SPV "${RF_SHADER_OUTPUT_DIR}/voxel_scene.vert.spv")
     set(RF_FRAGMENT_SPV "${RF_SHADER_OUTPUT_DIR}/voxel_scene.frag.spv")
@@ -114,6 +115,7 @@ if(WIN32)
     set(RF_SKY_FRAGMENT_SPV "${RF_SHADER_OUTPUT_DIR}/sky.frag.spv")
     set(RF_HUD_FRAGMENT_SPV "${RF_SHADER_OUTPUT_DIR}/hud.frag.spv")
     set(RF_WATER_FRAGMENT_SPV "${RF_SHADER_OUTPUT_DIR}/water.frag.spv")
+    set(RF_CHARACTER_FRAGMENT_SPV "${RF_SHADER_OUTPUT_DIR}/character.frag.spv")
 
     function(rf_compile_shader output profile entry source description)
         add_custom_command(
@@ -129,11 +131,12 @@ if(WIN32)
     endfunction()
 
     rf_compile_shader("${RF_VERTEX_SPV}" vs_6_6 VSMain "${RF_SHADER_SOURCE}" "Compiling RuneForge voxel vertex shader")
-    rf_compile_shader("${RF_FRAGMENT_SPV}" ps_6_6 PSMain "${RF_SHADER_SOURCE}" "Compiling RuneForge hero material shader")
+    rf_compile_shader("${RF_FRAGMENT_SPV}" ps_6_6 PSMain "${RF_SHADER_SOURCE}" "Compiling RuneForge hero terrain material shader")
     rf_compile_shader("${RF_FULLSCREEN_VERTEX_SPV}" vs_6_6 VSFullscreen "${RF_SHADER_SOURCE}" "Compiling RuneForge fullscreen vertex shader")
     rf_compile_shader("${RF_SKY_FRAGMENT_SPV}" ps_6_6 PSSky "${RF_SHADER_SOURCE}" "Compiling RuneForge procedural sky shader")
     rf_compile_shader("${RF_HUD_FRAGMENT_SPV}" ps_6_6 PSHud "${RF_SHADER_SOURCE}" "Compiling RuneForge survival HUD shader")
     rf_compile_shader("${RF_WATER_FRAGMENT_SPV}" ps_6_6 PSWater "${RF_WATER_SHADER_SOURCE}" "Compiling RuneForge stylized water shader")
+    rf_compile_shader("${RF_CHARACTER_FRAGMENT_SPV}" ps_6_6 PSCharacter "${RF_CHARACTER_SHADER_SOURCE}" "Compiling RuneForge character material shader")
 
     add_custom_target(runeforge_shaders DEPENDS
         "${RF_VERTEX_SPV}"
@@ -142,6 +145,7 @@ if(WIN32)
         "${RF_SKY_FRAGMENT_SPV}"
         "${RF_HUD_FRAGMENT_SPV}"
         "${RF_WATER_FRAGMENT_SPV}"
+        "${RF_CHARACTER_FRAGMENT_SPV}"
     )
 
     add_executable(RuneForgeRealms WIN32
@@ -190,6 +194,8 @@ if(WIN32)
                 "$<TARGET_FILE_DIR:RuneForgeRealms>/shaders/hud.frag.spv"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RF_WATER_FRAGMENT_SPV}"
                 "$<TARGET_FILE_DIR:RuneForgeRealms>/shaders/water.frag.spv"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RF_CHARACTER_FRAGMENT_SPV}"
+                "$<TARGET_FILE_DIR:RuneForgeRealms>/shaders/character.frag.spv"
         VERBATIM
     )
 
@@ -212,6 +218,7 @@ if(WIN32)
         "${RF_SKY_FRAGMENT_SPV}"
         "${RF_HUD_FRAGMENT_SPV}"
         "${RF_WATER_FRAGMENT_SPV}"
+        "${RF_CHARACTER_FRAGMENT_SPV}"
         DESTINATION runtime/shaders
     )
 endif()
