@@ -2,17 +2,23 @@
 
 #include "render/vulkan/VulkanRenderer.h"
 
+#include "game/character/CharacterAppearance.h"
+#include "game/character/PlayerBodyRig.h"
 #include "render/scene/FirstPersonBodyBuilder.h"
 
 namespace rf::render {
 
 bool VulkanRenderer::updateFirstPersonBodyMesh() {
-    const auto eye = player_.eyePosition();
-    const auto forward = player_.lookDirection();
-    game::Vec3 right = game::normalized({forward.z, 0.0f, -forward.x});
-    if (game::lengthSquared(right) <= 0.000001f) right = {1.0f, 0.0f, 0.0f};
-    const game::Vec3 up = game::normalized(game::cross(forward, right));
-    const world::VoxelMesh mesh = scene::FirstPersonBodyBuilder::build(eye, forward, right, up, miningSwing_.pose());
+    const auto feet = player_.position();
+    const game::Vec3 bodyForward = game::horizontalForward(player_.yaw());
+    auto bodyPose = game::character::PlayerBodyRig::solve(feet, bodyForward, player_.crouching());
+
+    // MiningSwing owns the physical right-arm animation. Rendering copies that exact solved chain
+    // into the full body so visible fist position and collision sweep can never drift apart.
+    if (miningSwing_.pose().active) bodyPose.rightArm = miningSwing_.pose().rightArm;
+
+    const game::character::CharacterAppearance appearance{};
+    const world::VoxelMesh mesh = scene::FirstPersonBodyBuilder::build(bodyPose, appearance);
     if (mesh.empty()) {
         firstPersonIndexCount_ = 0;
         return true;

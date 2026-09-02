@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(RuneForgeRealms VERSION 0.5.0 LANGUAGES C CXX)
+project(RuneForgeRealms VERSION 0.5.1 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,6 +10,7 @@ option(RF_BUILD_TESTS "Build RuneForge tests" ON)
 find_package(Threads REQUIRED)
 
 add_library(runeforge_core STATIC
+    src/app/UiState.cpp
     src/core/Version.cpp
     src/core/HubModel.cpp
     src/core/jobs/JobSystem.cpp
@@ -27,6 +28,7 @@ add_library(runeforge_core STATIC
     src/world/growth/GrassGrowth.cpp
     src/world/FrontierWorld.cpp
     src/game/PlayerController.cpp
+    src/game/character/PlayerBodyRig.cpp
     src/game/audio/AudioEventQueue.cpp
     src/game/inventory/Inventory.cpp
     src/game/drops/DropSystem.cpp
@@ -38,6 +40,7 @@ add_library(runeforge_core STATIC
     src/render/scene/ChunkCulling.cpp
     src/render/scene/DropMeshBuilder.cpp
     src/render/scene/ParticleMeshBuilder.cpp
+    src/render/scene/VoxelCharacterBuilder.cpp
     src/render/scene/FirstPersonBodyBuilder.cpp
     src/save/FrontierSave.cpp
     src/save/world/RegionFile.cpp
@@ -236,6 +239,7 @@ if(RF_BUILD_TESTS)
         tests/TestInventoryGrowth.cpp
         tests/TestDrops.cpp
         tests/TestPolishFoundation.cpp
+        tests/TestCharacterRig.cpp
     )
     target_link_libraries(runeforge_core_tests PRIVATE runeforge_core)
     add_test(NAME runeforge_core_tests COMMAND runeforge_core_tests)

@@ -1,5 +1,6 @@
 #include "TestSuites.h"
 
+#include "app/UiState.h"
 #include "core/settings/GameSettings.h"
 #include "game/Math.h"
 #include "game/interaction/MiningSwing.h"
@@ -17,6 +18,52 @@
 
 void runPolishFoundationTests() {
     using namespace rf;
+
+    // Modal state is the single authority for gameplay input, renderer pause and mouse ownership.
+    // This prevents an invisible menu from consuming input while gameplay still appears active.
+    app::UiState uiState;
+    assert(uiState.screen() == app::UiScreen::Hub);
+    assert(!uiState.gameplayInputAllowed());
+    assert(!uiState.mouseShouldBeCaptured());
+    assert(!uiState.nativeOverlayVisible());
+
+    assert(uiState.enterGameplay());
+    assert(uiState.gameplayInputAllowed());
+    assert(uiState.mouseShouldBeCaptured());
+    assert(!uiState.rendererShouldBePaused());
+    assert(!uiState.nativeOverlayVisible());
+
+    assert(uiState.openPause());
+    assert(uiState.screen() == app::UiScreen::Pause);
+    assert(uiState.rendererShouldBePaused());
+    assert(!uiState.gameplayInputAllowed());
+    assert(!uiState.mouseShouldBeCaptured());
+    assert(uiState.nativeOverlayVisible());
+
+    assert(uiState.openSettings());
+    assert(uiState.screen() == app::UiScreen::Settings);
+    assert(uiState.settingsReturnScreen() == app::UiScreen::Pause);
+    assert(uiState.rendererShouldBePaused());
+    assert(uiState.nativeOverlayVisible());
+    assert(uiState.closeSettings());
+    assert(uiState.screen() == app::UiScreen::Pause);
+    assert(uiState.closePause());
+    assert(uiState.screen() == app::UiScreen::Gameplay);
+
+    assert(uiState.openInventory());
+    assert(uiState.screen() == app::UiScreen::Inventory);
+    assert(uiState.rendererShouldBePaused());
+    assert(uiState.nativeOverlayVisible());
+    assert(!uiState.openPause()); // A visible modal cannot silently stack another modal behind itself.
+    assert(uiState.closeInventory());
+    assert(uiState.screen() == app::UiScreen::Gameplay);
+
+    uiState.returnToHub();
+    assert(uiState.openSettings());
+    assert(uiState.settingsReturnScreen() == app::UiScreen::Hub);
+    assert(uiState.closeSettings());
+    assert(uiState.screen() == app::UiScreen::Hub);
+    assert(!uiState.nativeOverlayVisible());
 
     // CPU interaction/body math must use the same handed camera basis as the HLSL view transform:
     // up = normalize(cross(forward, right)). This guards pitch-angle drift between the visible fist
@@ -98,12 +145,16 @@ void runPolishFoundationTests() {
     for (int i = 0; i < 6; ++i) (void)flowWorld.advanceSimulation(0.12f);
     assert(flowWorld.getBlock(opening.x, opening.y, opening.z) == world::BlockId::Water);
 
-    // A camera ray may nominate a target, but only the animated fist sweep is allowed to confirm
-    // damage. The same swing locks to the front block and can never continue into the block behind it.
+    // A camera ray may nominate a target, but only the animated fixed-length fist sweep confirms
+    // damage. This fixture uses a physically reachable front face from the actual player root.
     world::FrontierWorld swingWorld;
     swingWorld.generate(4242u);
-    for (int y = 9; y <= 12; ++y) {
-        for (int z = 0; z <= 3; ++z) (void)swingWorld.setBlock(0, y, z, world::BlockId::Air, false);
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = 9; y <= 12; ++y) {
+            for (int z = -1; z <= 3; ++z) {
+                (void)swingWorld.setBlock(x, y, z, world::BlockId::Air, false);
+            }
+        }
     }
     (void)swingWorld.setBlock(0, 10, 1, world::BlockId::Stone, false);
     (void)swingWorld.setBlock(0, 10, 2, world::BlockId::Stone, false);
@@ -112,19 +163,20 @@ void runPolishFoundationTests() {
     intended.block = {0,10,1};
     intended.adjacent = {0,10,0};
     intended.worldX = 0.5f;
-    intended.worldY = 10.5f;
+    intended.worldY = 10.55f;
     intended.worldZ = 1.0f;
     intended.microResolved = true;
 
     game::interaction::MiningSwing swing;
-    const game::Vec3 eye{0.5f,10.5f,0.0f};
+    const game::Vec3 feet{0.5f,9.0f,0.5f};
+    const game::Vec3 eye{0.5f,10.62f,0.5f};
     const game::Vec3 forward{0,0,1};
     const game::Vec3 right{1,0,0};
     const game::Vec3 up{0,1,0};
-    assert(swing.begin(intended, eye, forward, right, up, 0.50f));
+    assert(swing.begin(intended, feet, false, eye, forward, right, up, 0.50f));
     int contacts = 0;
-    for (int frame = 0; frame < 24; ++frame) {
-        if (const auto contact = swing.update(0.03f, swingWorld, eye, forward, right, up)) {
+    for (int frame = 0; frame < 30; ++frame) {
+        if (const auto contact = swing.update(0.025f, swingWorld, feet, false, eye, forward, right, up)) {
             ++contacts;
             assert(contact->hit.block == intended.block);
             (void)swingWorld.setBlock(intended.block.x, intended.block.y, intended.block.z, world::BlockId::Air, false);

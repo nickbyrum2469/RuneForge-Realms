@@ -16,6 +16,7 @@
 namespace rf::platform {
 namespace {
 constexpr wchar_t windowClass[] = L"RuneForgeRealmsNativeWindow";
+constexpr wchar_t overlayWindowClass[] = L"RuneForgeRealmsNativeUiOverlay";
 
 std::wstring wide(std::string_view value) { return std::wstring(value.begin(), value.end()); }
 std::wstring hubTitle() { return L"RuneForge Realms - Frontier Realms " + wide(RF_VERSION_STRING); }
@@ -84,6 +85,16 @@ bool NativeWindow::create(HINSTANCE instance, int showCommand) {
     wc.lpszClassName = windowClass;
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
 
+    WNDCLASSEXW overlayClass{};
+    overlayClass.cbSize = sizeof(overlayClass);
+    overlayClass.style = CS_HREDRAW | CS_VREDRAW;
+    overlayClass.lpfnWndProc = &NativeWindow::OverlayWindowProc;
+    overlayClass.hInstance = instance_;
+    overlayClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    overlayClass.hbrBackground = nullptr;
+    overlayClass.lpszClassName = overlayWindowClass;
+    if (!RegisterClassExW(&overlayClass) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+
     RECT desired{0, 0, 1600, 900};
     AdjustWindowRectEx(&desired, WS_OVERLAPPEDWINDOW, FALSE, 0);
     const std::wstring title = hubTitle();
@@ -91,6 +102,7 @@ bool NativeWindow::create(HINSTANCE instance, int showCommand) {
                             CW_USEDEFAULT, CW_USEDEFAULT, desired.right - desired.left, desired.bottom - desired.top,
                             nullptr, nullptr, instance_, this);
     if (!hwnd_) return false;
+    if (!createUiOverlay()) return false;
 
     painter_ = std::make_unique<rf::ui::HubPainter>(hwnd_);
     if (!painter_->initialize()) return false;
@@ -102,6 +114,23 @@ bool NativeWindow::create(HINSTANCE instance, int showCommand) {
     return true;
 }
 
+bool NativeWindow::createUiOverlay() {
+    RECT client{};
+    GetClientRect(hwnd_, &client);
+    const int width = std::max<LONG>(client.right - client.left, 1);
+    const int height = std::max<LONG>(client.bottom - client.top, 1);
+    uiOverlayHwnd_ = CreateWindowExW(
+        WS_EX_NOPARENTNOTIFY,
+        overlayWindowClass,
+        L"RuneForge Native UI Overlay",
+        WS_CHILD | WS_CLIPSIBLINGS,
+        0, 0, width, height,
+        hwnd_, nullptr, instance_, this);
+    if (!uiOverlayHwnd_) return false;
+    ShowWindow(uiOverlayHwnd_, SW_HIDE);
+    return true;
+}
+
 int NativeWindow::run() {
     MSG message{};
     for (;;) {
@@ -110,7 +139,7 @@ int NativeWindow::run() {
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
-        if (mode_ == ViewMode::Frontier && renderer_ && renderer_->initialized()) {
+        if (uiState_.screen() == app::UiScreen::Gameplay && renderer_ && renderer_->initialized()) {
             renderer_->drawFrame();
             audioSystem_.consume(renderer_->drainAudioEvents(), renderer_->audioListenerPosition());
             audioSystem_.update();
@@ -132,60 +161,63 @@ LRESULT CALLBACK NativeWindow::WindowProc(HWND hwnd, UINT message, WPARAM wParam
     return self ? self->handleMessage(message, wParam, lParam) : DefWindowProcW(hwnd, message, wParam, lParam);
 }
 
+LRESULT CALLBACK NativeWindow::OverlayWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    NativeWindow* self = reinterpret_cast<NativeWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (message == WM_NCCREATE) {
+        auto* create = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        self = static_cast<NativeWindow*>(create->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+        self->uiOverlayHwnd_ = hwnd;
+    }
+    return self ? self->handleOverlayMessage(message, wParam, lParam) : DefWindowProcW(hwnd, message, wParam, lParam);
+}
+
 LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
         case WM_ERASEBKGND:
             return 1;
 
         case WM_SIZE: {
-            const unsigned width = LOWORD(lParam);
-            const unsigned height = HIWORD(lParam);
+            const unsigned width = std::max<unsigned>(LOWORD(lParam), 1u);
+            const unsigned height = std::max<unsigned>(HIWORD(lParam), 1u);
             if (painter_) painter_->resize(width, height);
-            if (inventoryPainter_) inventoryPainter_->resize(width, height);
-            if (pausePainter_) pausePainter_->resize(width, height);
-            if (settingsPainter_) settingsPainter_->resize(width, height);
+            resizeUiOverlay(width, height);
             if (renderer_) renderer_->resize(width, height);
             InvalidateRect(hwnd_, nullptr, FALSE);
+            if (uiState_.nativeOverlayVisible() && uiOverlayHwnd_) InvalidateRect(uiOverlayHwnd_, nullptr, FALSE);
             return 0;
         }
 
         case WM_PAINT: {
             PAINTSTRUCT ps{};
             BeginPaint(hwnd_, &ps);
-            if (mode_ == ViewMode::Hub && painter_) painter_->draw();
-            else if (mode_ == ViewMode::Inventory && inventoryPainter_) inventoryPainter_->draw();
-            else if (mode_ == ViewMode::Pause && pausePainter_) pausePainter_->draw();
-            else if (mode_ == ViewMode::Settings && settingsPainter_) settingsPainter_->draw();
+            if (uiState_.screen() == app::UiScreen::Hub && painter_) painter_->draw();
             EndPaint(hwnd_, &ps);
             return 0;
         }
 
         case WM_LBUTTONDOWN:
-            if (mode_ == ViewMode::Hub && painter_) {
+            if (uiState_.screen() == app::UiScreen::Hub && painter_) {
                 handleAction(painter_->click(static_cast<float>(GET_X_LPARAM(lParam)), static_cast<float>(GET_Y_LPARAM(lParam))));
-            } else if (mode_ == ViewMode::Frontier && renderer_ && !renderer_->paused()) {
+            } else if (uiState_.gameplayInputAllowed() && renderer_ && !renderer_->paused()) {
                 renderer_->onMouseButtonDown(true);
-            } else if (mode_ == ViewMode::Pause && pausePainter_) {
-                handlePauseAction(pausePainter_->hitTest(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)));
-            } else if (mode_ == ViewMode::Settings && settingsPainter_) {
-                handleSettingsAction(settingsPainter_->hitTest(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)));
             }
             return 0;
 
         case WM_LBUTTONUP:
-            if (mode_ == ViewMode::Frontier && renderer_) renderer_->onMouseButtonUp(true);
+            if (uiState_.gameplayInputAllowed() && renderer_) renderer_->onMouseButtonUp(true);
             return 0;
 
         case WM_RBUTTONDOWN:
-            if (mode_ == ViewMode::Frontier && renderer_ && !renderer_->paused()) renderer_->onMouseButtonDown(false);
+            if (uiState_.gameplayInputAllowed() && renderer_ && !renderer_->paused()) renderer_->onMouseButtonDown(false);
             return 0;
 
         case WM_RBUTTONUP:
-            if (mode_ == ViewMode::Frontier && renderer_) renderer_->onMouseButtonUp(false);
+            if (uiState_.gameplayInputAllowed() && renderer_) renderer_->onMouseButtonUp(false);
             return 0;
 
         case WM_MOUSEMOVE:
-            if (mode_ == ViewMode::Frontier && renderer_ && mouseCaptured_ && !renderer_->paused()) {
+            if (uiState_.gameplayInputAllowed() && renderer_ && mouseCaptured_ && !renderer_->paused()) {
                 RECT client{};
                 GetClientRect(hwnd_, &client);
                 const int centerX = (client.right - client.left) / 2;
@@ -201,36 +233,24 @@ LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
 
         case WM_KEYDOWN:
             if ((lParam & (1u << 30)) != 0 && (wParam == VK_ESCAPE || wParam == VK_TAB || wParam == 'I')) return 0;
-
-            if (mode_ == ViewMode::Inventory) {
-                if (wParam == 'I' || wParam == VK_TAB || wParam == VK_ESCAPE) closeInventory();
-                return 0;
-            }
-            if (mode_ == ViewMode::Pause) {
-                if (wParam == VK_ESCAPE) closePause();
-                return 0;
-            }
-            if (mode_ == ViewMode::Settings) {
-                if (wParam == VK_ESCAPE) closeSettings();
-                return 0;
-            }
-            if (mode_ == ViewMode::Frontier && renderer_) {
-                if ((wParam == 'I' || wParam == VK_TAB) && !renderer_->paused()) openInventory();
+            if (uiState_.nativeOverlayVisible()) return handleOverlayMessage(message, wParam, lParam);
+            if (uiState_.screen() == app::UiScreen::Gameplay && renderer_) {
+                if (wParam == 'I' || wParam == VK_TAB) openInventory();
                 else if (wParam == VK_ESCAPE) openPause();
                 else renderer_->onKeyDown(wParam);
             }
             return 0;
 
         case WM_KEYUP:
-            if (mode_ == ViewMode::Frontier && renderer_) renderer_->onKeyUp(wParam);
+            if (uiState_.gameplayInputAllowed() && renderer_) renderer_->onKeyUp(wParam);
             return 0;
 
         case WM_ACTIVATEAPP:
-            if (mode_ == ViewMode::Frontier && renderer_ && wParam == FALSE) openPause();
+            if (uiState_.screen() == app::UiScreen::Gameplay && renderer_ && wParam == FALSE) openPause();
             return 0;
 
         case WM_SETCURSOR:
-            if (mode_ == ViewMode::Frontier && mouseCaptured_ && renderer_ && !renderer_->paused()) {
+            if (uiState_.gameplayInputAllowed() && mouseCaptured_ && renderer_ && !renderer_->paused()) {
                 SetCursor(nullptr);
                 return TRUE;
             }
@@ -244,6 +264,7 @@ LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
             inventoryPainter_.reset();
             renderer_.reset();
             painter_.reset();
+            uiOverlayHwnd_ = nullptr;
             audioSystem_.shutdown();
             PostQuitMessage(0);
             return 0;
@@ -252,6 +273,90 @@ LRESULT NativeWindow::handleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
             break;
     }
     return DefWindowProcW(hwnd_, message, wParam, lParam);
+}
+
+LRESULT NativeWindow::handleOverlayMessage(UINT message, WPARAM wParam, LPARAM lParam) {
+    switch (message) {
+        case WM_ERASEBKGND:
+            return 1;
+
+        case WM_PAINT: {
+            PAINTSTRUCT ps{};
+            BeginPaint(uiOverlayHwnd_, &ps);
+            drawActiveOverlay();
+            EndPaint(uiOverlayHwnd_, &ps);
+            return 0;
+        }
+
+        case WM_LBUTTONDOWN:
+            if (uiState_.screen() == app::UiScreen::Pause && pausePainter_) {
+                handlePauseAction(pausePainter_->hitTest(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)));
+            } else if (uiState_.screen() == app::UiScreen::Settings && settingsPainter_) {
+                handleSettingsAction(settingsPainter_->hitTest(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)));
+            }
+            return 0;
+
+        case WM_KEYDOWN:
+            if ((lParam & (1u << 30)) != 0 && (wParam == VK_ESCAPE || wParam == VK_TAB || wParam == 'I')) return 0;
+            if (uiState_.screen() == app::UiScreen::Inventory) {
+                if (wParam == 'I' || wParam == VK_TAB || wParam == VK_ESCAPE) closeInventory();
+            } else if (uiState_.screen() == app::UiScreen::Pause) {
+                if (wParam == VK_ESCAPE) closePause();
+            } else if (uiState_.screen() == app::UiScreen::Settings) {
+                if (wParam == VK_ESCAPE) closeSettings();
+            }
+            return 0;
+
+        case WM_SETCURSOR:
+            SetCursor(LoadCursor(nullptr, IDC_ARROW));
+            return TRUE;
+
+        default:
+            break;
+    }
+    return DefWindowProcW(uiOverlayHwnd_, message, wParam, lParam);
+}
+
+void NativeWindow::drawActiveOverlay() {
+    if (uiState_.screen() == app::UiScreen::Inventory && inventoryPainter_) inventoryPainter_->draw();
+    else if (uiState_.screen() == app::UiScreen::Pause && pausePainter_) pausePainter_->draw();
+    else if (uiState_.screen() == app::UiScreen::Settings && settingsPainter_) settingsPainter_->draw();
+}
+
+void NativeWindow::resizeUiOverlay(unsigned width, unsigned height) {
+    width = std::max(width, 1u);
+    height = std::max(height, 1u);
+    if (uiOverlayHwnd_) MoveWindow(uiOverlayHwnd_, 0, 0, static_cast<int>(width), static_cast<int>(height), TRUE);
+    if (inventoryPainter_) inventoryPainter_->resize(width, height);
+    if (pausePainter_) pausePainter_->resize(width, height);
+    if (settingsPainter_) settingsPainter_->resize(width, height);
+}
+
+void NativeWindow::showUiOverlay() {
+    if (!uiOverlayHwnd_) return;
+    RECT client{};
+    GetClientRect(hwnd_, &client);
+    resizeUiOverlay(static_cast<unsigned>(std::max<LONG>(client.right - client.left, 1)),
+                    static_cast<unsigned>(std::max<LONG>(client.bottom - client.top, 1)));
+    ShowWindow(uiOverlayHwnd_, SW_SHOW);
+    SetWindowPos(uiOverlayHwnd_, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    SetFocus(uiOverlayHwnd_);
+    InvalidateRect(uiOverlayHwnd_, nullptr, FALSE);
+}
+
+void NativeWindow::hideUiOverlay() {
+    if (uiOverlayHwnd_) ShowWindow(uiOverlayHwnd_, SW_HIDE);
+    if (hwnd_) SetFocus(hwnd_);
+}
+
+void NativeWindow::syncInteractionState() {
+    if (renderer_) renderer_->setPaused(uiState_.rendererShouldBePaused());
+
+    if (uiState_.nativeOverlayVisible()) showUiOverlay();
+    else hideUiOverlay();
+
+    if (renderer_ && uiState_.mouseShouldBeCaptured()) captureMouse();
+    else releaseMouse();
 }
 
 void NativeWindow::centerMouse() {
@@ -263,7 +368,7 @@ void NativeWindow::centerMouse() {
 }
 
 void NativeWindow::captureMouse() {
-    if (!hwnd_) return;
+    if (!hwnd_ || mouseCaptured_) return;
     SetCapture(hwnd_);
     RECT rect{};
     GetClientRect(hwnd_, &rect);
@@ -290,11 +395,12 @@ void NativeWindow::applySettings() {
     (void)core::settings::saveGameSettings(settingsPath(), settings_);
     if (renderer_) renderer_->applySettings(settings_);
     if (settingsPainter_) settingsPainter_->setSettings(settings_);
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    if (uiState_.nativeOverlayVisible() && uiOverlayHwnd_) InvalidateRect(uiOverlayHwnd_, nullptr, FALSE);
+    else InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void NativeWindow::enterFrontier(bool continueExisting) {
-    if (mode_ == ViewMode::Frontier) return;
+    if (uiState_.screen() == app::UiScreen::Gameplay) return;
     painter_.reset();
     inventoryPainter_.reset();
     pausePainter_.reset();
@@ -309,107 +415,138 @@ void NativeWindow::enterFrontier(bool continueExisting) {
         MessageBoxW(hwnd_, error.c_str(), L"RuneForge Frontier initialization", MB_OK | MB_ICONERROR);
         return;
     }
-    mode_ = ViewMode::Frontier;
-    captureMouse();
+    if (!uiState_.enterGameplay()) {
+        renderer_.reset();
+        returnToHub();
+        return;
+    }
+    SetWindowTextW(hwnd_, hubTitle().c_str());
+    syncInteractionState();
 }
 
 void NativeWindow::openInventory() {
-    if (mode_ != ViewMode::Frontier || !renderer_) return;
-    renderer_->setPaused(true);
-    releaseMouse();
+    if (uiState_.screen() != app::UiScreen::Gameplay || !renderer_ || !uiOverlayHwnd_) return;
 
-    inventoryPainter_ = std::make_unique<rf::ui::inventory::InventoryPainter>(hwnd_);
-    if (!inventoryPainter_->initialize()) {
-        inventoryPainter_.reset();
-        renderer_->setPaused(false);
-        captureMouse();
+    auto painter = std::make_unique<rf::ui::inventory::InventoryPainter>(uiOverlayHwnd_);
+    if (!painter->initialize()) {
         MessageBoxW(hwnd_, L"RuneForge could not open the native inventory screen.", L"RuneForge Inventory", MB_OK | MB_ICONERROR);
         return;
     }
-    inventoryPainter_->setInventory(renderer_->inventory(), renderer_->miningMode());
+    painter->setInventory(renderer_->inventory(), renderer_->miningMode());
     RECT client{};
     GetClientRect(hwnd_, &client);
-    inventoryPainter_->resize(static_cast<unsigned>(std::max<LONG>(client.right - client.left, 1)),
-                              static_cast<unsigned>(std::max<LONG>(client.bottom - client.top, 1)));
-    mode_ = ViewMode::Inventory;
+    painter->resize(static_cast<unsigned>(std::max<LONG>(client.right - client.left, 1)),
+                    static_cast<unsigned>(std::max<LONG>(client.bottom - client.top, 1)));
+
+    inventoryPainter_ = std::move(painter);
+    if (!uiState_.openInventory()) {
+        inventoryPainter_.reset();
+        return;
+    }
     SetWindowTextW(hwnd_, (L"RuneForge Realms " + wide(RF_VERSION_STRING) + L" - Inventory").c_str());
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    syncInteractionState();
 }
 
 void NativeWindow::closeInventory() {
-    if (mode_ != ViewMode::Inventory || !renderer_) return;
+    if (uiState_.screen() != app::UiScreen::Inventory || !renderer_) return;
     inventoryPainter_.reset();
-    mode_ = ViewMode::Frontier;
-    renderer_->setPaused(false);
-    captureMouse();
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    if (!uiState_.closeInventory()) return;
+    SetWindowTextW(hwnd_, hubTitle().c_str());
+    syncInteractionState();
+}
+
+bool NativeWindow::createPausePainter() {
+    if (!uiOverlayHwnd_) return false;
+    auto painter = std::make_unique<rf::ui::menus::PauseMenuPainter>(uiOverlayHwnd_);
+    if (!painter->initialize()) return false;
+    RECT client{};
+    GetClientRect(hwnd_, &client);
+    painter->resize(static_cast<unsigned>(std::max<LONG>(client.right - client.left, 1)),
+                    static_cast<unsigned>(std::max<LONG>(client.bottom - client.top, 1)));
+    pausePainter_ = std::move(painter);
+    return true;
 }
 
 void NativeWindow::openPause() {
-    if (mode_ != ViewMode::Frontier || !renderer_) return;
-    renderer_->setPaused(true);
-    releaseMouse();
-    pausePainter_ = std::make_unique<rf::ui::menus::PauseMenuPainter>(hwnd_);
-    if (!pausePainter_->initialize()) {
-        pausePainter_.reset();
-        renderer_->setPaused(false);
-        captureMouse();
+    if (uiState_.screen() != app::UiScreen::Gameplay || !renderer_) return;
+    if (!createPausePainter()) {
+        MessageBoxW(hwnd_, L"RuneForge could not open the pause menu.", L"RuneForge Pause", MB_OK | MB_ICONERROR);
         return;
     }
-    RECT client{};
-    GetClientRect(hwnd_, &client);
-    pausePainter_->resize(static_cast<unsigned>(std::max<LONG>(client.right - client.left, 1)),
-                          static_cast<unsigned>(std::max<LONG>(client.bottom - client.top, 1)));
-    mode_ = ViewMode::Pause;
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    if (!uiState_.openPause()) {
+        pausePainter_.reset();
+        return;
+    }
+    SetWindowTextW(hwnd_, (L"RuneForge Realms " + wide(RF_VERSION_STRING) + L" - Paused").c_str());
+    syncInteractionState();
 }
 
 void NativeWindow::closePause() {
-    if (mode_ != ViewMode::Pause || !renderer_) return;
+    if (uiState_.screen() != app::UiScreen::Pause || !renderer_) return;
     pausePainter_.reset();
-    mode_ = ViewMode::Frontier;
-    renderer_->setPaused(false);
-    captureMouse();
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    if (!uiState_.closePause()) return;
+    SetWindowTextW(hwnd_, hubTitle().c_str());
+    syncInteractionState();
 }
 
-void NativeWindow::openSettings(ViewMode returnMode) {
-    settingsReturnMode_ = returnMode;
-    if (returnMode == ViewMode::Frontier && renderer_) renderer_->setPaused(true);
-    releaseMouse();
-    settingsPainter_ = std::make_unique<rf::ui::settings::SettingsPainter>(hwnd_);
-    if (!settingsPainter_->initialize()) {
-        settingsPainter_.reset();
+void NativeWindow::openSettings() {
+    const app::UiScreen returnScreen = uiState_.screen();
+    if (returnScreen != app::UiScreen::Hub && returnScreen != app::UiScreen::Pause) return;
+    if (!uiOverlayHwnd_) return;
+
+    if (returnScreen == app::UiScreen::Pause) pausePainter_.reset();
+    auto painter = std::make_unique<rf::ui::settings::SettingsPainter>(uiOverlayHwnd_);
+    if (!painter->initialize()) {
+        if (returnScreen == app::UiScreen::Pause && !createPausePainter()) {
+            (void)uiState_.closePause();
+            syncInteractionState();
+        }
+        MessageBoxW(hwnd_, L"RuneForge could not open the settings screen.", L"RuneForge Settings", MB_OK | MB_ICONERROR);
         return;
     }
-    settingsPainter_->setSettings(settings_);
+    painter->setSettings(settings_);
     RECT client{};
     GetClientRect(hwnd_, &client);
-    settingsPainter_->resize(static_cast<unsigned>(std::max<LONG>(client.right - client.left, 1)),
-                             static_cast<unsigned>(std::max<LONG>(client.bottom - client.top, 1)));
-    mode_ = ViewMode::Settings;
+    painter->resize(static_cast<unsigned>(std::max<LONG>(client.right - client.left, 1)),
+                    static_cast<unsigned>(std::max<LONG>(client.bottom - client.top, 1)));
+
+    settingsPainter_ = std::move(painter);
+    if (!uiState_.openSettings()) {
+        settingsPainter_.reset();
+        if (returnScreen == app::UiScreen::Pause) (void)createPausePainter();
+        return;
+    }
     SetWindowTextW(hwnd_, (L"RuneForge Realms " + wide(RF_VERSION_STRING) + L" - Settings").c_str());
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    syncInteractionState();
 }
 
 void NativeWindow::closeSettings() {
-    if (mode_ != ViewMode::Settings) return;
+    if (uiState_.screen() != app::UiScreen::Settings) return;
+    const app::UiScreen returnScreen = uiState_.settingsReturnScreen();
     settingsPainter_.reset();
-    if (settingsReturnMode_ == ViewMode::Pause && renderer_) {
-        mode_ = ViewMode::Pause;
+    if (!uiState_.closeSettings()) return;
+
+    if (returnScreen == app::UiScreen::Pause) {
+        if (!createPausePainter()) {
+            (void)uiState_.closePause();
+            SetWindowTextW(hwnd_, hubTitle().c_str());
+            syncInteractionState();
+            MessageBoxW(hwnd_, L"The pause menu could not be restored, so RuneForge returned safely to gameplay.",
+                        L"RuneForge Pause", MB_OK | MB_ICONWARNING);
+            return;
+        }
         SetWindowTextW(hwnd_, (L"RuneForge Realms " + wide(RF_VERSION_STRING) + L" - Paused").c_str());
     } else {
-        mode_ = ViewMode::Hub;
-        const std::wstring title = hubTitle();
-        SetWindowTextW(hwnd_, title.c_str());
+        SetWindowTextW(hwnd_, hubTitle().c_str());
     }
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    syncInteractionState();
+    if (uiState_.screen() == app::UiScreen::Hub) InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void NativeWindow::handlePauseAction(rf::ui::menus::PauseAction action) {
     switch (action) {
         case rf::ui::menus::PauseAction::Resume: closePause(); return;
-        case rf::ui::menus::PauseAction::Settings: openSettings(ViewMode::Pause); return;
+        case rf::ui::menus::PauseAction::Settings: openSettings(); return;
         case rf::ui::menus::PauseAction::ReturnToMain: returnToHub(); return;
         case rf::ui::menus::PauseAction::Quit:
             if (renderer_) renderer_->saveNow();
@@ -439,8 +576,8 @@ void NativeWindow::returnToHub() {
     if (renderer_) renderer_->saveNow();
     renderer_.reset();
     audioSystem_.stopAll();
-    releaseMouse();
-    mode_ = ViewMode::Hub;
+    uiState_.returnToHub();
+    syncInteractionState();
     painter_ = std::make_unique<rf::ui::HubPainter>(hwnd_);
     if (!painter_->initialize()) {
         MessageBoxW(hwnd_, L"RuneForge could not restore the native main menu.", L"RuneForge Realms", MB_OK | MB_ICONERROR);
@@ -452,8 +589,7 @@ void NativeWindow::returnToHub() {
     GetClientRect(hwnd_, &client);
     painter_->resize(static_cast<unsigned>(std::max<LONG>(client.right - client.left, 1)),
                      static_cast<unsigned>(std::max<LONG>(client.bottom - client.top, 1)));
-    const std::wstring title = hubTitle();
-    SetWindowTextW(hwnd_, title.c_str());
+    SetWindowTextW(hwnd_, hubTitle().c_str());
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
@@ -472,7 +608,7 @@ void NativeWindow::handleAction(rf::ui::HubAction action) {
             MessageBoxW(hwnd_, L"World management is being expanded around Frontier's persistent save. Continue and New World are active now.",
                         L"RuneForge Worlds", MB_OK | MB_ICONINFORMATION);
             return;
-        case rf::ui::HubAction::OpenSettings: openSettings(ViewMode::Hub); return;
+        case rf::ui::HubAction::OpenSettings: openSettings(); return;
         case rf::ui::HubAction::Quit: PostMessageW(hwnd_, WM_CLOSE, 0, 0); return;
         default: return;
     }

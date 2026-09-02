@@ -19,6 +19,10 @@ constexpr std::array<MaterialDefinition, MaterialRegistry::materialCount> kMater
     {world::SurfaceMaterial::CharacterBlueCloth, "hero_blue_cloth", 0.91f, 0.0f, 0.0f, 0.72f, 16.0f, 0.11f, "woven_blue_cloth"},
     {world::SurfaceMaterial::CharacterLeather, "hero_leather", 0.78f, 0.0f, 0.0f, 0.68f, 13.0f, 0.18f, "worn_brown_leather"},
     {world::SurfaceMaterial::CharacterMetal, "hero_steel", 0.38f, 0.62f, 0.0f, 0.42f, 28.0f, 0.20f, "chipped_dark_steel"},
+    {world::SurfaceMaterial::CharacterHair, "hero_dark_hair", 0.88f, 0.0f, 0.0f, 0.69f, 22.0f, 0.10f, "layered_dark_voxel_hair"},
+    {world::SurfaceMaterial::CharacterEyeWhite, "hero_eye_white", 0.52f, 0.0f, 0.0f, 0.92f, 28.0f, 0.04f, "clean_eye_white"},
+    {world::SurfaceMaterial::CharacterEyeBlue, "hero_eye_blue", 0.31f, 0.0f, 0.0f, 0.96f, 34.0f, 0.05f, "bright_blue_iris"},
+    {world::SurfaceMaterial::CharacterLoincloth, "hero_loincloth", 0.95f, 0.0f, 0.0f, 0.61f, 13.0f, 0.12f, "rough_olive_survival_cloth"},
 }};
 
 } // namespace
