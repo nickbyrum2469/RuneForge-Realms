@@ -227,11 +227,13 @@ void VulkanRenderer::destroySwapchainResources() {
     depthMemory_ = VK_NULL_HANDLE;
 
     if (hudPipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, hudPipeline_, nullptr);
+    if (waterPipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, waterPipeline_, nullptr);
     if (pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, pipeline_, nullptr);
     if (skyPipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, skyPipeline_, nullptr);
     if (pipelineLayout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(device_, pipelineLayout_, nullptr);
     if (renderPass_ != VK_NULL_HANDLE) vkDestroyRenderPass(device_, renderPass_, nullptr);
     hudPipeline_ = VK_NULL_HANDLE;
+    waterPipeline_ = VK_NULL_HANDLE;
     pipeline_ = VK_NULL_HANDLE;
     skyPipeline_ = VK_NULL_HANDLE;
     pipelineLayout_ = VK_NULL_HANDLE;
