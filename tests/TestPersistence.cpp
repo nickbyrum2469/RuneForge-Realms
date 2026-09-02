@@ -92,11 +92,16 @@ void runPersistenceTests() {
 
     // Serializer record counts must describe the lines actually emitted, even if a caller hands
     // save code invalid/transient state. Invalid records are omitted rather than corrupting parsing.
+    // This second write also exercises replacement of an existing metadata file. The newly committed
+    // metadata must become visible and a successful replacement must not leave its rollback file behind.
+    data.worldAgeSeconds = 201.25f;
     data.miningDamage.push_back({{6, 9, 4}, 0.0f});
     data.drops.push_back({20, rf::game::items::ItemId::None, 0, {}, {}, 0.0f});
     assert(rf::save::saveFrontierSave(savePath, data));
+    assert(!fs::exists(fs::path(savePath.string() + ".bak")));
     const auto sanitized = rf::save::loadFrontierSave(savePath);
-    assert(sanitized && sanitized->miningDamage.size() == 2 && sanitized->drops.size() == 1);
+    assert(sanitized && sanitized->worldAgeSeconds == data.worldAgeSeconds);
+    assert(sanitized->miningDamage.size() == 2 && sanitized->drops.size() == 1);
 
     // A full save removes obsolete region and micro-region files rather than resurrecting stale edits.
     data.edits.resize(1);
