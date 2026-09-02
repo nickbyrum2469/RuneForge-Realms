@@ -50,6 +50,8 @@ jobs:
 
       - name: Install shader compiler
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./tools/setup_windows_deps.ps1
 
       - name: Configure
