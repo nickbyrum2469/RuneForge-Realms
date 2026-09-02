@@ -50,6 +50,14 @@ void assertFixedLeg(const rf::game::character::LegPose& leg) {
     assert(std::abs(distance(leg.knee, leg.ankle) - Rig::shinLength) < 0.0015f);
 }
 
+void assertHeroTaper(const rf::game::character::PlayerBodyPose& pose) {
+    const float shoulderSpan = distance(pose.rightArm.shoulder, pose.leftArm.shoulder);
+    const float hipSpan = distance(pose.rightLeg.hip, pose.leftLeg.hip);
+    assert(shoulderSpan > 0.625f);
+    assert(hipSpan < 0.275f);
+    assert(shoulderSpan / hipSpan > 2.25f);
+}
+
 } // namespace
 
 void runCharacterRigTests() {
@@ -70,9 +78,10 @@ void runCharacterRigTests() {
     assertFixedArm(body.leftArm);
     assertFixedLeg(body.rightLeg);
     assertFixedLeg(body.leftLeg);
+    assertHeroTaper(body);
     assert(body.rightArm.hand.y < body.pelvis.y - 0.035f);
     assert(body.leftArm.hand.y < body.pelvis.y - 0.035f);
-    assert(distance(body.rightArm.shoulder, body.leftArm.shoulder) > 0.58f);
+    assert(distance(body.rightArm.shoulder, body.leftArm.shoulder) > 0.62f);
     assert(game::dot(body.rightLeg.foot - body.rightLeg.ankle, body.forward) > 0.145f);
     assert(game::dot(body.leftLeg.foot - body.leftLeg.ankle, body.forward) > 0.145f);
 
@@ -87,6 +96,7 @@ void runCharacterRigTests() {
     assertFixedArm(walkingA.leftArm);
     assertFixedLeg(walkingA.rightLeg);
     assertFixedLeg(walkingA.leftLeg);
+    assertHeroTaper(walkingA);
     assert(game::dot(walkingA.rightLeg.ankle - feet, walkingA.forward) >
            game::dot(walkingA.leftLeg.ankle - feet, walkingA.forward) + 0.15f);
     assert(game::dot(walkingA.leftArm.hand - walkingA.pelvis, walkingA.forward) >
@@ -100,6 +110,7 @@ void runCharacterRigTests() {
     assertFixedArm(walkingB.leftArm);
     assertFixedLeg(walkingB.rightLeg);
     assertFixedLeg(walkingB.leftLeg);
+    assertHeroTaper(walkingB);
     assert(game::dot(walkingB.leftLeg.ankle - feet, walkingB.forward) >
            game::dot(walkingB.rightLeg.ankle - feet, walkingB.forward) + 0.15f);
     assert(game::dot(walkingB.rightArm.hand - walkingB.pelvis, walkingB.forward) >
@@ -113,6 +124,7 @@ void runCharacterRigTests() {
     assertFixedArm(breathing.leftArm);
     assertFixedLeg(breathing.rightLeg);
     assertFixedLeg(breathing.leftLeg);
+    assertHeroTaper(breathing);
     assert(breathing.pelvis.y > body.pelvis.y + 0.003f);
 
     const game::Vec3 impossibleHand{6.0f, 12.0f, 7.0f};
@@ -127,6 +139,7 @@ void runCharacterRigTests() {
     assertFixedArm(crouched.leftArm);
     assertFixedLeg(crouched.rightLeg);
     assertFixedLeg(crouched.leftLeg);
+    assertHeroTaper(crouched);
     assert(crouched.pelvis.y < body.pelvis.y);
 
     const auto fullPose = game::character::PlayerBodyRig::solve({0.0f, 0.0f, 0.0f}, forward, false);
