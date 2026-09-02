@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(RuneForgeRealms VERSION 0.4.0 LANGUAGES C CXX)
+project(RuneForgeRealms VERSION 0.5.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,6 +13,7 @@ add_library(runeforge_core STATIC
     src/core/Version.cpp
     src/core/HubModel.cpp
     src/core/jobs/JobSystem.cpp
+    src/core/settings/GameSettings.cpp
     src/world/VoxelChunk.cpp
     src/world/GreedyMesher.cpp
     src/world/chunks/ChunkManager.cpp
@@ -27,6 +28,7 @@ add_library(runeforge_core STATIC
     src/game/PlayerController.cpp
     src/game/inventory/Inventory.cpp
     src/game/drops/DropSystem.cpp
+    src/game/mining/MiningCadence.cpp
     src/game/mining/MiningSystem.cpp
     src/render/materials/MaterialRegistry.cpp
     src/render/scene/ChunkCulling.cpp
@@ -146,6 +148,9 @@ if(WIN32)
         src/ui/HubPainter.cpp
         src/ui/inventory/InventoryLayout.cpp
         src/ui/inventory/InventoryPainter.cpp
+        src/ui/native/NativeUiSurface.cpp
+        src/ui/menus/PauseMenuPainter.cpp
+        src/ui/settings/SettingsPainter.cpp
     )
     add_dependencies(RuneForgeRealms runeforge_shaders)
     target_include_directories(RuneForgeRealms PRIVATE src)
@@ -207,6 +212,7 @@ if(RF_BUILD_TESTS)
         tests/TestMicroMining.cpp
         tests/TestInventoryGrowth.cpp
         tests/TestDrops.cpp
+        tests/TestPolishFoundation.cpp
     )
     target_link_libraries(runeforge_core_tests PRIVATE runeforge_core)
     add_test(NAME runeforge_core_tests COMMAND runeforge_core_tests)
