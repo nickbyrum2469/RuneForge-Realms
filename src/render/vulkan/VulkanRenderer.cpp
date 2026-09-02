@@ -27,8 +27,6 @@ struct SpawnPoint {
 };
 
 SpawnPoint findDrySpawn(const world::FrontierWorld& world) noexcept {
-    // Search deterministic concentric squares inside the already resident startup area. A valid spawn
-    // must be actual grass terrain with two air cells above it, never a water column or tree canopy.
     constexpr int maxRadius = 40;
     for (int radius = 0; radius <= maxRadius; ++radius) {
         for (int z = -radius; z <= radius; ++z) {
@@ -58,6 +56,7 @@ VulkanRenderer::~VulkanRenderer() { shutdown(); }
 bool VulkanRenderer::initializeSession() {
     inventory_.clear();
     drops_.clear();
+    particles_.clear();
     mining_.clearAllDamage();
     mining_.setMode(game::mining::MiningMode::Mixed);
     miningCadence_.reset();
@@ -140,6 +139,7 @@ void VulkanRenderer::shutdown() {
     if (device_ != VK_NULL_HANDLE) vkDeviceWaitIdle(device_);
 
     if (device_ != VK_NULL_HANDLE) {
+        destroyParticleMesh();
         destroyDropMesh();
         destroySceneMesh();
         for (auto& frame : frames_) {
@@ -214,6 +214,7 @@ void VulkanRenderer::updateGameplay(float deltaSeconds) {
     (void)world_.advanceSimulation(deltaSeconds);
     updateMining(deltaSeconds);
     drops_.update(deltaSeconds, world_, position, inventory_);
+    particles_.update(deltaSeconds, world_);
 
     const auto now = std::chrono::steady_clock::now();
     if (now - lastSaveTime_ >= std::chrono::seconds(15)) saveNow();
@@ -293,7 +294,7 @@ void VulkanRenderer::drawFrame() {
     removeUnloadedChunkMeshes();
     queueDirtyChunkMeshes();
     pumpChunkMeshJobs();
-    if (!updateDropMesh()) return;
+    if (!updateDropMesh() || !updateParticleMesh()) return;
 
     std::uint32_t imageIndex = 0;
     VkResult result = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX, frame.imageAvailable, VK_NULL_HANDLE, &imageIndex);
@@ -435,9 +436,11 @@ void VulkanRenderer::mineTargetBlock() {
     currentMiningProgress_ = outcome.damageProgress;
     if (!outcome.affected) return;
 
-    // Structural damage is a property of the damaged block, not the current selection. Remesh that
-    // visual state immediately so looking away cannot make cracks vanish or jump to another block.
     world_.markBlockVisualDirty(hit.block);
+    particles_.emitBlockBurst(outcome.block,
+                              {hit.worldX, hit.worldY, hit.worldZ},
+                              outcome.brokeBlock ? 13u : 3u,
+                              outcome.brokeBlock ? 1.25f : 0.65f);
 
     if (mining_.mode() == game::mining::MiningMode::Micro) {
         auto& harvested = microHarvestCells_[outcome.block];
@@ -478,6 +481,11 @@ void VulkanRenderer::placeTargetBlock() {
 
     if (world_.setBlock(hit.adjacent.x, hit.adjacent.y, hit.adjacent.z, *selected)) {
         (void)inventory_.removeFromSlot(inventory_.selectedHotbar(), 1);
+        particles_.emitBlockBurst(*selected,
+                                  {static_cast<float>(hit.adjacent.x) + 0.5f,
+                                   static_cast<float>(hit.adjacent.y) + 0.5f,
+                                   static_cast<float>(hit.adjacent.z) + 0.5f},
+                                  4u, 0.45f);
     }
 }
 
@@ -502,6 +510,7 @@ void VulkanRenderer::updateWindowTitle() {
     title += L" | Chunks " + std::to_wstring(stream.loaded) + L" + " + std::to_wstring(stream.pending) + L" pending";
     title += L" | Micro " + std::to_wstring(world_.promotedBlockCount());
     title += L" | Drops " + std::to_wstring(drops_.drops().size());
+    title += L" | FX " + std::to_wstring(particles_.size());
     title += L" | " + gpu;
     if (paused_) title += L" | Esc: Resume";
     else title += L" | Hold LMB Mine | RMB Place | M Mining Mode | 1-9 Hotbar | Tab/I Inventory | Esc Pause";
