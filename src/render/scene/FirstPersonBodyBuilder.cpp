@@ -10,11 +10,6 @@ namespace {
 
 using game::Vec3;
 
-float smooth01(float value) noexcept {
-    value = std::clamp(value, 0.0f, 1.0f);
-    return value * value * (3.0f - 2.0f * value);
-}
-
 void canonicalizeBasis(Vec3& forward, Vec3& right, Vec3& up) noexcept {
     forward = game::normalized(forward);
     if (game::lengthSquared(forward) <= 0.000001f) forward = {0.0f, 0.0f, 1.0f};
@@ -28,8 +23,6 @@ void canonicalizeBasis(Vec3& forward, Vec3& right, Vec3& up) noexcept {
     up = game::normalized(game::cross(forward, right));
     if (game::lengthSquared(up) <= 0.000001f) up = {0.0f, 1.0f, 0.0f};
 }
-
-std::array<float, 3> xyz(Vec3 value) noexcept { return {value.x, value.y, value.z}; }
 
 void addQuad(world::VoxelMesh& mesh,
              Vec3 p0,
@@ -155,7 +148,6 @@ void addVoxelHand(world::VoxelMesh& mesh,
 }
 
 Vec3 animatedRightHand(const FirstPersonViewModelState& state,
-                       Vec3 eye,
                        Vec3 forward,
                        Vec3 right,
                        Vec3 up,
@@ -163,27 +155,29 @@ Vec3 animatedRightHand(const FirstPersonViewModelState& state,
     if (!state.swingActive) return rest;
 
     const float t = std::clamp(state.swingTime, 0.0f, 1.0f);
+    const float accelerated = std::sqrt(t);
+    const float primaryArc = std::sin(accelerated * 3.14159265f);
+    const float lateralArc = std::sin(accelerated * 6.28318530f);
     const float targetRatio = std::clamp(state.targetDistance / 2.45f, 0.0f, 1.0f);
-    const float strikeDepth = 0.48f + targetRatio * 0.20f;
-    const Vec3 windup = rest + right * 0.105f - up * 0.020f - forward * 0.070f;
-    const Vec3 strike = eye + forward * strikeDepth + right * 0.012f - up * 0.020f;
-    const Vec3 follow = eye + forward * (strikeDepth + 0.045f) - right * 0.105f - up * 0.085f;
 
-    if (t < 0.18f) {
-        const float u = smooth01(t / 0.18f);
-        return rest * (1.0f - u) + windup * u;
-    }
-    if (t < 0.56f) {
-        const float u = smooth01((t - 0.18f) / 0.38f);
-        const float arc = std::sin(u * 3.14159265f);
-        return windup * (1.0f - u) + strike * u + up * (arc * 0.055f) - right * (arc * 0.040f);
-    }
-    if (t < 0.74f) {
-        const float u = smooth01((t - 0.56f) / 0.18f);
-        return strike * (1.0f - u) + follow * u;
-    }
-    const float u = smooth01((t - 0.74f) / 0.26f);
-    return follow * (1.0f - u) + rest * u;
+    // Minecraft's readable hand motion comes from a compact screen-space arc rather than throwing
+    // the hand all the way to the raycast point. Keep the RuneForge fist attached to its persistent
+    // lower-right rest pose, sweep it down/inward, add only a short forward follow-through, then let
+    // the sqrt-shaped phase snap naturally back to rest. Target distance may slightly deepen the
+    // follow-through, but it can never turn the animation into the old telescoping center-screen jab.
+    constexpr float inwardSweep = 0.145f;
+    constexpr float downwardSweep = 0.105f;
+    constexpr float baseForwardSweep = 0.070f;
+    constexpr float targetForwardSweep = 0.035f;
+    constexpr float lateralCurl = 0.030f;
+    static_assert(inwardSweep < 0.18f && downwardSweep < 0.13f &&
+                  baseForwardSweep + targetForwardSweep < 0.12f);
+
+    const float forwardSweep = baseForwardSweep + targetForwardSweep * targetRatio;
+    return rest - right * (primaryArc * inwardSweep)
+                - up * (primaryArc * downwardSweep)
+                + forward * (primaryArc * forwardSweep)
+                + right * (lateralArc * lateralCurl);
 }
 
 } // namespace
@@ -204,7 +198,7 @@ world::VoxelMesh FirstPersonBodyBuilder::build(const FirstPersonViewModelState& 
     const Vec3 leftRest = input.eye + forward * 0.395f - right * (0.255f + sideBob) -
                           up * (0.258f + verticalBob);
 
-    const Vec3 rightHand = animatedRightHand(input, input.eye, forward, right, up, rightRest);
+    const Vec3 rightHand = animatedRightHand(input, forward, right, up, rightRest);
 
     if (input.equippedBlock.has_value()) {
         // Equipped view: only the dominant hand is shown. The held item is camera-space too, so its
