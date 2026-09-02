@@ -18,5 +18,11 @@ void runCullingTests() {
     assert(rf::render::scene::ChunkCulling::visible({0, -1}, input));
 
     input.maxDistanceBlocks = 24.0f;
+
+    // Chunk (1,1) spans [16,32] on both horizontal axes. Its center is ~33.9 blocks away,
+    // but the nearest corner is ~22.6 blocks away and therefore intersects the render radius.
+    // Center-only distance culling used to incorrectly drop this chunk at the range boundary.
+    assert(rf::render::scene::ChunkCulling::visible({1, 1}, input));
+
     assert(!rf::render::scene::ChunkCulling::visible({4, 4}, input));
 }
