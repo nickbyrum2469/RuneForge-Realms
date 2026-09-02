@@ -17,11 +17,34 @@ bool replaceFile(const std::filesystem::path& temporary, const std::filesystem::
     std::error_code ec;
     std::filesystem::rename(temporary, destination, ec);
     if (!ec) return true;
+
+    // Windows does not reliably allow rename-over-existing. Never delete the live save first: move
+    // it aside, install the fully-written temporary file, and restore the old metadata if the second
+    // rename fails. A failed rollback still leaves the previous save recoverable as .bak instead of
+    // destroying the only known-good metadata file.
     ec.clear();
-    std::filesystem::remove(destination, ec);
+    if (!std::filesystem::exists(destination, ec) || ec) return false;
+
+    const std::filesystem::path backup = destination.string() + ".bak";
+    ec.clear();
+    std::filesystem::remove(backup, ec);
+    if (ec) return false;
+
+    ec.clear();
+    std::filesystem::rename(destination, backup, ec);
+    if (ec) return false;
+
     ec.clear();
     std::filesystem::rename(temporary, destination, ec);
-    return !ec;
+    if (ec) {
+        std::error_code rollbackError;
+        std::filesystem::rename(backup, destination, rollbackError);
+        return false;
+    }
+
+    std::error_code cleanupError;
+    std::filesystem::remove(backup, cleanupError);
+    return true;
 }
 
 bool readInlineEdits(std::istream& input, FrontierSaveData& data, std::size_t count) {
