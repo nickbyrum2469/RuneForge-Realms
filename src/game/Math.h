@@ -24,8 +24,20 @@ struct Vec3 {
     return {value.x * scalar, value.y * scalar, value.z * scalar};
 }
 
+[[nodiscard]] inline float dot(const Vec3& a, const Vec3& b) noexcept {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+[[nodiscard]] inline Vec3 cross(const Vec3& a, const Vec3& b) noexcept {
+    return {
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x,
+    };
+}
+
 [[nodiscard]] inline float lengthSquared(const Vec3& value) noexcept {
-    return value.x * value.x + value.y * value.y + value.z * value.z;
+    return dot(value, value);
 }
 
 [[nodiscard]] inline Vec3 normalized(Vec3 value) noexcept {
