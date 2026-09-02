@@ -289,6 +289,10 @@ void VulkanRenderer::recordCommandBuffer(VkCommandBuffer commandBuffer, std::uin
     drawSceneMeshes(commandBuffer, false);
     drawBlockParticles(commandBuffer);
 
+    // The first-person body uses the exact swing pose used by contact collision, so what the player
+    // sees is the same limb motion the engine uses to decide where the block is struck.
+    drawFirstPersonBody(commandBuffer);
+
     // Transparent water is isolated from the opaque terrain index stream. That avoids drawing the
     // whole world twice and gives fluids independent blend/depth policy without destabilizing terrain.
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, waterPipeline_);
