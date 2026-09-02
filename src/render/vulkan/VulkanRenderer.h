@@ -87,8 +87,10 @@ private:
 
     struct GpuChunkMesh {
         BufferResource vertices{};
-        BufferResource indices{};
-        std::uint32_t indexCount{};
+        BufferResource opaqueIndices{};
+        BufferResource waterIndices{};
+        std::uint32_t opaqueIndexCount{};
+        std::uint32_t waterIndexCount{};
         std::uint32_t quadCount{};
         std::uint32_t solidBlockCount{};
         std::uint64_t revision{};
@@ -174,7 +176,7 @@ private:
     void queueDirtyChunkMeshes();
     void pumpChunkMeshJobs();
     void removeUnloadedChunkMeshes();
-    void drawSceneMeshes(VkCommandBuffer commandBuffer);
+    void drawSceneMeshes(VkCommandBuffer commandBuffer, bool waterPass);
     void refreshSceneCounters();
     [[nodiscard]] bool meshJobPending(world::ChunkCoord coord, std::uint64_t revision,
                                       world::meshing::SurfaceDetailTier detailTier) const noexcept;
@@ -258,6 +260,7 @@ private:
     VkPipelineLayout pipelineLayout_{VK_NULL_HANDLE};
     VkPipeline skyPipeline_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
+    VkPipeline waterPipeline_{VK_NULL_HANDLE};
     VkPipeline hudPipeline_{VK_NULL_HANDLE};
 
     VkFormat depthFormat_{VK_FORMAT_UNDEFINED};
