@@ -15,6 +15,10 @@ constexpr std::array<MaterialDefinition, MaterialRegistry::materialCount> kMater
     {world::SurfaceMaterial::FlowerYellow, "flower_yellow", 0.70f, 0.0f, 0.03f, 1.0f, 20.0f, 0.16f, "flower_petals"},
     {world::SurfaceMaterial::FlowerBlue, "flower_blue", 0.68f, 0.0f, 0.03f, 1.0f, 20.0f, 0.16f, "flower_petals"},
     {world::SurfaceMaterial::Water, "frontier_water", 0.16f, 0.0f, 0.02f, 0.32f, 22.0f, 0.16f, "clear_stylized_water"},
+    {world::SurfaceMaterial::CharacterSkin, "hero_skin", 0.66f, 0.0f, 0.0f, 0.55f, 18.0f, 0.08f, "warm_voxel_skin"},
+    {world::SurfaceMaterial::CharacterBlueCloth, "hero_blue_cloth", 0.91f, 0.0f, 0.0f, 0.72f, 16.0f, 0.11f, "woven_blue_cloth"},
+    {world::SurfaceMaterial::CharacterLeather, "hero_leather", 0.78f, 0.0f, 0.0f, 0.68f, 13.0f, 0.18f, "worn_brown_leather"},
+    {world::SurfaceMaterial::CharacterMetal, "hero_steel", 0.38f, 0.62f, 0.0f, 0.42f, 28.0f, 0.20f, "chipped_dark_steel"},
 }};
 
 } // namespace
