@@ -29,6 +29,10 @@ enum class SurfaceMaterial : std::uint32_t {
     FlowerYellow,
     FlowerBlue,
     Water,
+    CharacterSkin,
+    CharacterBlueCloth,
+    CharacterLeather,
+    CharacterMetal,
 };
 
 [[nodiscard]] constexpr bool isRenderable(BlockId block) noexcept {
