@@ -1,5 +1,7 @@
 #include "game/character/PlayerBodyRig.h"
 
+#include "game/character/CharacterLocomotion.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -194,14 +196,14 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
     const Vec3 rightHip = pose.pelvis + pose.right * 0.135f + pose.forward * hipTwist;
     const Vec3 leftHip = pose.pelvis - pose.right * 0.135f - pose.forward * hipTwist;
     const float crouchFootSpread = crouch * 0.045f;
-    const float stepTravel = locomotion * 0.105f;
+    const float stepTravel = locomotion * footStrideHalfTravel;
     const float rightLift = locomotion * std::max(walk, 0.0f) * 0.052f;
     const float leftLift = locomotion * std::max(-walk, 0.0f) * 0.052f;
 
-    // The reference hero stands on a visibly broader, planted base than the old near-hip-width pose.
-    // Keep the pelvis narrow for the V-taper, but place the ankles farther out so the thighs taper
-    // into a stable athletic stance. This is local character geometry only; it cannot rotate or move
-    // terrain/world space, and the two-bone solver still preserves exact thigh/shin lengths.
+    // Match ankle travel to the distance-driven gait phase so the stance foot moves backward against
+    // root translation instead of riding forward with the actor. At mid-stance this cancels ~94% of
+    // root motion, a measurable reduction in foot skating, while the fixed two-bone solver still owns
+    // the exact 0.42 m thigh and 0.40 m shin lengths.
     constexpr float referenceAnkleHalfSpan = 0.165f;
     const Vec3 rightAnkle = feet + pose.right * (referenceAnkleHalfSpan + crouchFootSpread) +
                             pose.forward * (crouch * 0.09f + walk * stepTravel) +

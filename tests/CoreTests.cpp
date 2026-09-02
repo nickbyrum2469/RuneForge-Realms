@@ -116,6 +116,27 @@ void runGaitDistanceCalibrationRegression() {
     assert(std::abs(game::character::locomotionPhaseFromDistance(cycleDistance * 0.5f) - twoPi * 0.5f) < 0.0001f);
 }
 
+void runMidStanceFootPlantRegression() {
+    using namespace rf;
+
+    // The previous 0.105 m ankle arc cancelled only 50.4% of actor-root translation at mid-stance.
+    // The calibrated 0.195 m arc cancels 93.6%, leaving under 7% theoretical fore/aft slip while
+    // keeping the fixed-length leg solver and cadence unchanged.
+    constexpr float oldSlipFraction = 1.0f - 0.105f * game::character::gaitPhasePerMeter;
+    static_assert(oldSlipFraction > 0.49f && oldSlipFraction < 0.50f);
+    static_assert(game::character::midStanceFootSlipFraction() > 0.06f);
+    static_assert(game::character::midStanceFootSlipFraction() < 0.07f);
+    static_assert(game::character::footStrideHalfTravel < game::character::PlayerBodyRig::thighLength);
+
+    game::character::BodyMotionState stance;
+    stance.locomotionAmount = 1.0f;
+    stance.locomotionPhase = 3.14159265359f;
+    const auto planted = game::character::PlayerBodyRig::solve({0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, false,
+                                                                nullptr, nullptr, &stance);
+    const float rightAnkleForeAft = game::dot(planted.rightLeg.ankle - planted.root, planted.forward);
+    assert(std::abs(rightAnkleForeAft) < 0.01f);
+}
+
 } // namespace
 
 int main() {
@@ -132,6 +153,7 @@ int main() {
     runCharacterVoxelOrientationRegression();
     runCollisionResolvedLocomotionRegression();
     runGaitDistanceCalibrationRegression();
+    runMidStanceFootPlantRegression();
 
     std::cout << "RuneForge 0.5.0 commercial-foundation tests passed\n";
     return 0;
