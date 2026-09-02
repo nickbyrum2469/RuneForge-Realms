@@ -8,6 +8,9 @@
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
+#include <future>
+#include <thread>
 
 namespace {
 
@@ -78,4 +81,35 @@ void runWorldTests() {
     assert(worldA.streamingStats().pending <= rf::world::ChunkManager::maxPendingChunks);
     assert(worldA.updateStreaming(0.5f, 0.5f));
     assert(worldA.getBlock(0, top, 0) == rf::world::BlockId::Air);
+
+    // Prefetch is background work. If the player moves far enough that an in-flight prefetched chunk
+    // enters the resident window, streaming must not block the calling/game thread on future::get().
+    rf::world::ChunkManager streaming;
+    std::promise<void> releasePromise;
+    const std::shared_future<void> release = releasePromise.get_future().share();
+    const rf::world::ChunkManager::Generator slowPrefetch = [release](rf::world::ChunkCoord coord) {
+        if (coord.x != 0 || coord.z != 0) release.wait();
+        rf::world::VoxelChunk chunk;
+        chunk.set(1, 1, 1, rf::world::BlockId::Stone);
+        return chunk;
+    };
+
+    (void)streaming.update({0, 0}, 0, 1, 1, slowPrefetch);
+    assert(streaming.contains({0, 0}));
+    assert(streaming.pendingCount() > 0);
+
+    auto residentUpdate = std::async(std::launch::async, [&streaming, &slowPrefetch]() {
+        return streaming.update({1, 0}, 0, 1, 1, slowPrefetch);
+    });
+    const auto status = residentUpdate.wait_for(std::chrono::milliseconds{250});
+    releasePromise.set_value();
+    assert(status == std::future_status::ready);
+    (void)residentUpdate.get();
+    assert(!streaming.contains({1, 0}));
+
+    for (int attempt = 0; attempt < 200 && !streaming.contains({1, 0}); ++attempt) {
+        (void)streaming.update({1, 0}, 0, 1, 1, slowPrefetch);
+        if (!streaming.contains({1, 0})) std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    }
+    assert(streaming.contains({1, 0}));
 }
