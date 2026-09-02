@@ -2,6 +2,7 @@
 
 #ifdef _WIN32
 
+#include "app/UiState.h"
 #include "audio/windows/WindowsAudioSystem.h"
 #include "core/settings/GameSettings.h"
 #include "render/vulkan/VulkanRenderer.h"
@@ -25,10 +26,10 @@ public:
     int run();
 
 private:
-    enum class ViewMode { Hub, Frontier, Inventory, Pause, Settings };
-
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK OverlayWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT handleMessage(UINT message, WPARAM wParam, LPARAM lParam);
+    LRESULT handleOverlayMessage(UINT message, WPARAM wParam, LPARAM lParam);
     void handleAction(rf::ui::HubAction action);
     void handlePauseAction(rf::ui::menus::PauseAction action);
     void handleSettingsAction(rf::ui::settings::SettingsAction action);
@@ -37,10 +38,17 @@ private:
     void closeInventory();
     void openPause();
     void closePause();
-    void openSettings(ViewMode returnMode);
+    void openSettings();
     void closeSettings();
     void applySettings();
     void returnToHub();
+    bool createUiOverlay();
+    void resizeUiOverlay(unsigned width, unsigned height);
+    void showUiOverlay();
+    void hideUiOverlay();
+    void syncInteractionState();
+    bool createPausePainter();
+    void drawActiveOverlay();
     void captureMouse();
     void releaseMouse();
     void centerMouse();
@@ -49,8 +57,8 @@ private:
 
     HINSTANCE instance_{};
     HWND hwnd_{};
-    ViewMode mode_{ViewMode::Hub};
-    ViewMode settingsReturnMode_{ViewMode::Hub};
+    HWND uiOverlayHwnd_{};
+    app::UiState uiState_{};
     bool mouseCaptured_{false};
     core::settings::GameSettings settings_{};
     audio::windows::WindowsAudioSystem audioSystem_;
