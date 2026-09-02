@@ -1,6 +1,7 @@
 #include "TestSuites.h"
 
 #include "core/settings/GameSettings.h"
+#include "game/Math.h"
 #include "game/interaction/MiningSwing.h"
 #include "game/mining/MiningCadence.h"
 #include "game/mining/MiningSystem.h"
@@ -11,10 +12,22 @@
 #include "world/generation/TerrainGenerator.h"
 
 #include <cassert>
+#include <cmath>
 #include <optional>
 
 void runPolishFoundationTests() {
     using namespace rf;
+
+    // CPU interaction/body math must use the same handed camera basis as the HLSL view transform:
+    // up = normalize(cross(forward, right)). This guards pitch-angle drift between the visible fist
+    // and the physical sweep that decides mining contact.
+    const game::Vec3 basisForward = game::forwardFromAngles(0.65f, 0.42f);
+    const game::Vec3 basisRight = game::normalized({basisForward.z, 0.0f, -basisForward.x});
+    const game::Vec3 basisUp = game::normalized(game::cross(basisForward, basisRight));
+    assert(basisUp.y > 0.0f);
+    assert(std::abs(game::dot(basisForward, basisRight)) < 0.0001f);
+    assert(std::abs(game::dot(basisForward, basisUp)) < 0.0001f);
+    assert(std::abs(game::dot(basisRight, basisUp)) < 0.0001f);
 
     game::mining::MiningCadence cadence;
     cadence.press();
