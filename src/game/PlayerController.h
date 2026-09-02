@@ -7,6 +7,7 @@ namespace rf::world { class FrontierWorld; }
 namespace rf::game {
 
 enum class MoveControl { Forward, Backward, Left, Right, Sprint, Crouch };
+enum class CameraMode { FirstPerson, ThirdPerson };
 
 class PlayerController {
 public:
@@ -16,6 +17,9 @@ public:
     void addLook(float deltaX, float deltaY) noexcept;
     void update(float deltaSeconds, const world::FrontierWorld& world) noexcept;
     void setMouseSensitivity(float scale) noexcept;
+    void toggleCameraMode() noexcept {
+        cameraMode_ = cameraMode_ == CameraMode::FirstPerson ? CameraMode::ThirdPerson : CameraMode::FirstPerson;
+    }
 
     [[nodiscard]] Vec3 position() const noexcept { return position_; }
     [[nodiscard]] Vec3 eyePosition() const noexcept { return {position_.x, position_.y + eyeHeight(), position_.z}; }
@@ -24,6 +28,8 @@ public:
     [[nodiscard]] float pitch() const noexcept { return pitch_; }
     [[nodiscard]] bool grounded() const noexcept { return grounded_; }
     [[nodiscard]] bool crouching() const noexcept { return crouch_; }
+    [[nodiscard]] CameraMode cameraMode() const noexcept { return cameraMode_; }
+    [[nodiscard]] bool thirdPerson() const noexcept { return cameraMode_ == CameraMode::ThirdPerson; }
     [[nodiscard]] float bodyWidth() const noexcept { return crouch_ ? 0.58f : 0.62f; }
     [[nodiscard]] float bodyHeight() const noexcept { return crouch_ ? 1.25f : 1.80f; }
     [[nodiscard]] float eyeHeight() const noexcept { return crouch_ ? 1.10f : 1.62f; }
@@ -37,6 +43,7 @@ private:
     float yaw_{};
     float pitch_{-0.08f};
     float mouseSensitivity_{0.00215f};
+    CameraMode cameraMode_{CameraMode::FirstPerson};
     bool forward_{};
     bool backward_{};
     bool left_{};
