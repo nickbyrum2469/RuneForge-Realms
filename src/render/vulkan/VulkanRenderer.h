@@ -272,6 +272,7 @@ private:
     VkPipelineLayout pipelineLayout_{VK_NULL_HANDLE};
     VkPipeline skyPipeline_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
+    VkPipeline characterPipeline_{VK_NULL_HANDLE};
     VkPipeline waterPipeline_{VK_NULL_HANDLE};
     VkPipeline hudPipeline_{VK_NULL_HANDLE};
 
