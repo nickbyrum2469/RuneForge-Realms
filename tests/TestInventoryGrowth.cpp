@@ -29,22 +29,38 @@ void runInventoryGrowthTests() {
     assert(youngA.flower == youngB.flower);
 
     const auto mature = world::growth::GrassGrowth::sample(
-        424242u, block, 3, 5, world::growth::GrassGrowth::growthStepSeconds * 8.0f);
+        424242u, block, 3, 5, world::growth::GrassGrowth::growthStepSeconds * 24.0f);
     if (youngA.present) {
+        assert(youngA.stage >= 2); // Turf is already established when a chunk first appears.
         assert(mature.present);
         assert(mature.stage >= youngA.stage);
         assert(mature.height >= youngA.height);
     }
 
-    // Different nodes should not all share one global animation state.
+    // Grass coverage is an authored deterministic surface field, not something mining/remeshing can
+    // reveal. A majority-scale sample should already be populated at world age zero and the exact
+    // same nodes must remain present after later growth ticks.
+    int youngPresent = 0;
+    int maturePresent = 0;
     bool foundDifferent = false;
-    for (int z = 0; z < world::growth::GrassGrowth::nodeResolution && !foundDifferent; ++z) {
-        for (int x = 0; x < world::growth::GrassGrowth::nodeResolution && !foundDifferent; ++x) {
-            const auto node = world::growth::GrassGrowth::sample(424242u, block, x, z, 0.0f);
-            if (node.present != youngA.present || node.stage != youngA.stage || node.height != youngA.height) {
+    for (int z = 0; z < world::growth::GrassGrowth::nodeResolution; ++z) {
+        for (int x = 0; x < world::growth::GrassGrowth::nodeResolution; ++x) {
+            const auto young = world::growth::GrassGrowth::sample(424242u, block, x, z, 0.0f);
+            const auto old = world::growth::GrassGrowth::sample(
+                424242u, block, x, z, world::growth::GrassGrowth::growthStepSeconds * 40.0f);
+            assert(young.present == old.present);
+            if (young.present) {
+                ++youngPresent;
+                assert(young.stage >= 2);
+                assert(old.stage >= young.stage);
+            }
+            if (old.present) ++maturePresent;
+            if (young.present != youngA.present || young.stage != youngA.stage || young.height != youngA.height) {
                 foundDifferent = true;
             }
         }
     }
-    assert(foundDifferent);
+    assert(youngPresent >= 24); // Guards against a regression to the sparse 0.5.2 field.
+    assert(maturePresent == youngPresent);
+    assert(foundDifferent); // Different nodes still retain individual seeded variation.
 }

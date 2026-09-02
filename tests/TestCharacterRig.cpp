@@ -5,6 +5,7 @@
 #include "game/character/CharacterAppearance.h"
 #include "game/character/PlayerBodyRig.h"
 #include "game/interaction/MiningSwing.h"
+#include "render/scene/FirstPersonBodyBuilder.h"
 #include "render/scene/VoxelCharacterBuilder.h"
 #include "world/Block.h"
 #include "world/FrontierWorld.h"
@@ -28,6 +29,15 @@ bool hasMaterial(const rf::world::VoxelMesh& mesh, rf::world::SurfaceMaterial ma
     return false;
 }
 
+std::size_t materialVertexCount(const rf::world::VoxelMesh& mesh, rf::world::SurfaceMaterial material) {
+    const std::uint32_t wanted = static_cast<std::uint32_t>(material);
+    std::size_t count = 0;
+    for (const auto& vertex : mesh.vertices) {
+        if ((vertex.material & rf::world::surfaceMaterialMask) == wanted) ++count;
+    }
+    return count;
+}
+
 void assertFixedArm(const rf::game::character::ArmPose& arm) {
     using Rig = rf::game::character::PlayerBodyRig;
     assert(std::abs(distance(arm.shoulder, arm.elbow) - Rig::upperArmLength) < 0.0015f);
@@ -40,13 +50,29 @@ void assertFixedLeg(const rf::game::character::LegPose& leg) {
     assert(std::abs(distance(leg.knee, leg.ankle) - Rig::shinLength) < 0.0015f);
 }
 
+void assertHeroTaper(const rf::game::character::PlayerBodyPose& pose) {
+    const float shoulderSpan = distance(pose.rightArm.shoulder, pose.leftArm.shoulder);
+    const float hipSpan = distance(pose.rightLeg.hip, pose.leftLeg.hip);
+    assert(shoulderSpan > 0.625f);
+    assert(hipSpan < 0.275f);
+    assert(shoulderSpan / hipSpan > 2.25f);
+}
+
+void assertCompactHeadStack(const rf::game::character::PlayerBodyPose& pose) {
+    // The reference hero has almost no exposed pencil-neck gap: the large hair/head mass sits down
+    // into the shoulders. Keep the compact proportions stable through idle, gait and crouch poses.
+    assert(distance(pose.chest, pose.neck) > 0.100f);
+    assert(distance(pose.chest, pose.neck) < 0.110f);
+    assert(distance(pose.neck, pose.head) > 0.120f);
+    assert(distance(pose.neck, pose.head) < 0.130f);
+    assert(distance(pose.chest, pose.head) < 0.235f);
+}
+
 } // namespace
 
 void runCharacterRigTests() {
     using namespace rf;
 
-    // The canonical body is a fixed-length hierarchy. Far-away animation targets may rotate and
-    // bend joints, but they are never allowed to telescope the arm or leg segments.
     game::PlayerController cameraPlayer;
     cameraPlayer.spawn({0.5f, 9.0f, 0.5f}, 0.0f, 0.0f);
     assert(cameraPlayer.cameraMode() == game::CameraMode::FirstPerson);
@@ -62,11 +88,68 @@ void runCharacterRigTests() {
     assertFixedArm(body.leftArm);
     assertFixedLeg(body.rightLeg);
     assertFixedLeg(body.leftLeg);
+    assertHeroTaper(body);
+    assertCompactHeadStack(body);
     assert(body.rightArm.hand.y < body.pelvis.y - 0.035f);
     assert(body.leftArm.hand.y < body.pelvis.y - 0.035f);
-    assert(distance(body.rightArm.shoulder, body.leftArm.shoulder) > 0.58f);
+    assert(distance(body.rightArm.shoulder, body.leftArm.shoulder) > 0.62f);
     assert(game::dot(body.rightLeg.foot - body.rightLeg.ankle, body.forward) > 0.145f);
     assert(game::dot(body.leftLeg.foot - body.leftLeg.ankle, body.forward) > 0.145f);
+
+    // Third-person locomotion uses phase-driven arm/leg targets, but every articulated segment must
+    // remain the same anatomical length. Opposite phases should swap the leading foot and arm.
+    game::character::BodyMotionState gaitA;
+    gaitA.locomotionAmount = 1.0f;
+    gaitA.locomotionPhase = 1.57079632679f;
+    gaitA.idlePhase = 0.0f;
+    const auto walkingA = game::character::PlayerBodyRig::solve(feet, forward, false, nullptr, nullptr, &gaitA);
+    assertFixedArm(walkingA.rightArm);
+    assertFixedArm(walkingA.leftArm);
+    assertFixedLeg(walkingA.rightLeg);
+    assertFixedLeg(walkingA.leftLeg);
+    assertHeroTaper(walkingA);
+    assertCompactHeadStack(walkingA);
+    assert(game::dot(walkingA.rightLeg.ankle - feet, walkingA.forward) >
+           game::dot(walkingA.leftLeg.ankle - feet, walkingA.forward) + 0.15f);
+    assert(game::dot(walkingA.leftArm.hand - walkingA.pelvis, walkingA.forward) >
+           game::dot(walkingA.rightArm.hand - walkingA.pelvis, walkingA.forward) + 0.12f);
+    assert(walkingA.rightLeg.ankle.y > walkingA.leftLeg.ankle.y + 0.04f);
+
+    // The raised right leg means the left leg is planted: pelvis shifts left, hips rotate with the
+    // stride and shoulders counter-rotate. These are deliberately small pose-space offsets, not a
+    // world/camera rotation, and they must reverse cleanly on the opposite half of the gait cycle.
+    assert(game::dot(walkingA.pelvis - body.pelvis, walkingA.right) < -0.012f);
+    assert(game::dot(walkingA.rightLeg.hip - walkingA.leftLeg.hip, walkingA.forward) > 0.030f);
+    assert(game::dot(walkingA.rightArm.shoulder - walkingA.leftArm.shoulder, walkingA.forward) < -0.035f);
+
+    game::character::BodyMotionState gaitB = gaitA;
+    gaitB.locomotionPhase = 4.71238898038f;
+    const auto walkingB = game::character::PlayerBodyRig::solve(feet, forward, false, nullptr, nullptr, &gaitB);
+    assertFixedArm(walkingB.rightArm);
+    assertFixedArm(walkingB.leftArm);
+    assertFixedLeg(walkingB.rightLeg);
+    assertFixedLeg(walkingB.leftLeg);
+    assertHeroTaper(walkingB);
+    assertCompactHeadStack(walkingB);
+    assert(game::dot(walkingB.leftLeg.ankle - feet, walkingB.forward) >
+           game::dot(walkingB.rightLeg.ankle - feet, walkingB.forward) + 0.15f);
+    assert(game::dot(walkingB.rightArm.hand - walkingB.pelvis, walkingB.forward) >
+           game::dot(walkingB.leftArm.hand - walkingB.pelvis, walkingB.forward) + 0.12f);
+    assert(walkingB.leftLeg.ankle.y > walkingB.rightLeg.ankle.y + 0.04f);
+    assert(game::dot(walkingB.pelvis - body.pelvis, walkingB.right) > 0.012f);
+    assert(game::dot(walkingB.rightLeg.hip - walkingB.leftLeg.hip, walkingB.forward) < -0.030f);
+    assert(game::dot(walkingB.rightArm.shoulder - walkingB.leftArm.shoulder, walkingB.forward) > 0.035f);
+
+    game::character::BodyMotionState idleMotion;
+    idleMotion.idlePhase = 1.57079632679f;
+    const auto breathing = game::character::PlayerBodyRig::solve(feet, forward, false, nullptr, nullptr, &idleMotion);
+    assertFixedArm(breathing.rightArm);
+    assertFixedArm(breathing.leftArm);
+    assertFixedLeg(breathing.rightLeg);
+    assertFixedLeg(breathing.leftLeg);
+    assertHeroTaper(breathing);
+    assertCompactHeadStack(breathing);
+    assert(breathing.pelvis.y > body.pelvis.y + 0.003f);
 
     const game::Vec3 impossibleHand{6.0f, 12.0f, 7.0f};
     body = game::character::PlayerBodyRig::solve(feet, forward, false, &impossibleHand);
@@ -80,10 +163,10 @@ void runCharacterRigTests() {
     assertFixedArm(crouched.leftArm);
     assertFixedLeg(crouched.rightLeg);
     assertFixedLeg(crouched.leftLeg);
+    assertHeroTaper(crouched);
+    assertCompactHeadStack(crouched);
     assert(crouched.pelvis.y < body.pelvis.y);
 
-    // The permanent hero mesh is bare voxel skin plus hair/eyes and a minimal loincloth. Cloth,
-    // armor and future outfit pieces are overlays, not geometry baked into the base character.
     const auto fullPose = game::character::PlayerBodyRig::solve({0.0f, 0.0f, 0.0f}, forward, false);
     const game::character::CharacterAppearance baseAppearance{};
     const auto baseMesh = render::scene::VoxelCharacterBuilder::build(fullPose, baseAppearance);
@@ -95,7 +178,6 @@ void runCharacterRigTests() {
     assert(hasMaterial(baseMesh, world::SurfaceMaterial::CharacterLoincloth));
     assert(!hasMaterial(baseMesh, world::SurfaceMaterial::CharacterBlueCloth));
     assert(!hasMaterial(baseMesh, world::SurfaceMaterial::CharacterMetal));
-    // The reference-driven base uses substantially denser small-voxel sculpting than the old sparse mannequin.
     assert(baseMesh.quadCount > 2200);
 
     auto gearedAppearance = baseAppearance;
@@ -104,6 +186,27 @@ void runCharacterRigTests() {
     const auto gearedMesh = render::scene::VoxelCharacterBuilder::build(fullPose, gearedAppearance);
     assert(hasMaterial(gearedMesh, world::SurfaceMaterial::CharacterBlueCloth));
     assert(hasMaterial(gearedMesh, world::SurfaceMaterial::CharacterMetal));
+
+    // First-person is now a persistent camera-space viewmodel instead of borrowing the world-space
+    // body rig. Empty-handed idle has two visible hands; equipping a block leaves only the dominant
+    // hand and adds the held block's actual materials.
+    render::scene::FirstPersonViewModelState viewModel;
+    viewModel.eye = {0.0f, 1.62f, 0.0f};
+    viewModel.forward = {0.0f, 0.0f, 1.0f};
+    viewModel.right = {1.0f, 0.0f, 0.0f};
+    viewModel.up = {0.0f, 1.0f, 0.0f};
+    const auto bareHands = render::scene::FirstPersonBodyBuilder::build(viewModel);
+    assert(!bareHands.empty());
+    assert(hasMaterial(bareHands, world::SurfaceMaterial::CharacterSkin));
+    assert(!hasMaterial(bareHands, world::SurfaceMaterial::GrassTop));
+
+    viewModel.equippedBlock = world::BlockId::Grass;
+    const auto equippedHand = render::scene::FirstPersonBodyBuilder::build(viewModel);
+    assert(hasMaterial(equippedHand, world::SurfaceMaterial::CharacterSkin));
+    assert(hasMaterial(equippedHand, world::SurfaceMaterial::GrassTop));
+    assert(hasMaterial(equippedHand, world::SurfaceMaterial::GrassSide));
+    assert(materialVertexCount(equippedHand, world::SurfaceMaterial::CharacterSkin) <
+           materialVertexCount(bareHands, world::SurfaceMaterial::CharacterSkin));
 
     world::FrontierWorld swingWorld;
     swingWorld.generate(4242u);
@@ -119,12 +222,14 @@ void runCharacterRigTests() {
     const game::Vec3 right{1.0f, 0.0f, 0.0f};
     const game::Vec3 up{0.0f, 1.0f, 0.0f};
 
-    // LMB must animate even when the camera nominates nothing. Every frame of that miss still uses
-    // exactly the same fixed-length physical arm that the renderer consumes.
+    // Empty-air LMB still animates, but an unrelated nearby block may never become a stray off-axis
+    // contact. This protects the center-crosshair targeting contract.
+    (void)swingWorld.setBlock(1, 10, 1, world::BlockId::Stone, false);
     game::interaction::MiningSwing airSwing;
     const world::RaycastHit miss{};
     assert(airSwing.begin(miss, feet, false, eye, forward, right, up, 0.46f));
     assert(!airSwing.lockedBlock().has_value());
+    assert(!airSwing.pose().hasTarget);
     int airContacts = 0;
     for (int frame = 0; frame < 28; ++frame) {
         if (airSwing.active()) assertFixedArm(airSwing.pose().rightArm);
@@ -133,10 +238,10 @@ void runCharacterRigTests() {
     }
     assert(airContacts == 0);
     assert(!airSwing.active());
+    (void)swingWorld.setBlock(1, 10, 1, world::BlockId::Air, false);
 
-    // Camera nomination only influences intent. The first solid voxel reached by the swept fist is
-    // the one physical contact for this swing; deleting it cannot tunnel into a block behind it.
-    // Reach test: front voxel is farther than the literal arm chain but still comfortably interactive.
+    // The first solid block selected by the center camera ray is locked for the swing. Impact occurs
+    // once at that exact nominated block; deleting it cannot tunnel through to a block behind it.
     (void)swingWorld.setBlock(0, 10, 2, world::BlockId::Stone, false);
     (void)swingWorld.setBlock(0, 10, 3, world::BlockId::Stone, false);
     world::RaycastHit intended;
@@ -150,6 +255,8 @@ void runCharacterRigTests() {
 
     game::interaction::MiningSwing hitSwing;
     assert(hitSwing.begin(intended, feet, false, eye, forward, right, up, 0.50f));
+    assert(hitSwing.pose().hasTarget);
+    assert(hitSwing.pose().targetDistance > 1.0f);
     int contacts = 0;
     for (int frame = 0; frame < 30; ++frame) {
         assertFixedArm(hitSwing.pose().rightArm);

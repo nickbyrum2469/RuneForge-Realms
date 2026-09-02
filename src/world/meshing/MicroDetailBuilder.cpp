@@ -71,7 +71,9 @@ void addFlower(VoxelMesh& mesh, float cx, float y, float cz, growth::FlowerType 
 bool keepGrassNode(SurfaceDetailTier tier, std::uint32_t hash) noexcept {
     if (tier == SurfaceDetailTier::Distant) return false;
     if (tier == SurfaceDetailTier::Hero) return true;
-    return (hash & 1u) == 0u;
+    // Keep three quarters of deterministic grass nodes in the near tier. 0.5.2 threw half away,
+    // which made normal traversal look bald compared with the supplied dense turf reference.
+    return (hash & 3u) != 0u;
 }
 
 void addGrassNodes(VoxelMesh& mesh, const ChunkMeshingSnapshot& snapshot,
@@ -92,25 +94,46 @@ void addGrassNodes(VoxelMesh& mesh, const ChunkMeshingSnapshot& snapshot,
             if (!node.present || node.stage == 0) continue;
 
             const float cell = 1.0f / static_cast<float>(growth::GrassGrowth::nodeResolution);
-            const float jitterX = (static_cast<float>((nodeHash >> 7) & 15u) / 15.0f - 0.5f) * cell * 0.34f;
-            const float jitterZ = (static_cast<float>((nodeHash >> 13) & 15u) / 15.0f - 0.5f) * cell * 0.34f;
+            const float jitterX = (static_cast<float>((nodeHash >> 7) & 15u) / 15.0f - 0.5f) * cell * 0.22f;
+            const float jitterZ = (static_cast<float>((nodeHash >> 13) & 15u) / 15.0f - 0.5f) * cell * 0.22f;
             const float cx = static_cast<float>(localX) + (static_cast<float>(nx) + 0.5f) * cell + jitterX;
             const float cz = static_cast<float>(localZ) + (static_cast<float>(nz) + 0.5f) * cell + jitterZ;
             const float baseY = static_cast<float>(y + 1);
             const float w = node.width;
             const float h = node.height;
 
-            // A growth node is a tiny tuft rather than one fat pillar. Different blade heights keep the
-            // reference silhouette broken and soft while remaining real voxel geometry.
-            addBox(mesh, cx - w * 0.45f, baseY, cz - w * 0.45f, w * 0.65f, h, w * 0.65f, SurfaceMaterial::GrassTop);
-            if (node.stage >= 2) {
-                addBox(mesh, cx + w * 0.12f, baseY, cz - w * 0.18f, w * 0.52f, h * 0.78f, w * 0.52f, SurfaceMaterial::GrassTop);
+            // Dense turf is authored as clusters of tiny cuboid blades. Every visible node already
+            // has at least two blades, so terrain is lush on first load instead of slowly revealing
+            // isolated needles after remeshes. Hero detail adds more asymmetry without changing truth.
+            addBox(mesh, cx - w * 0.50f, baseY, cz - w * 0.48f,
+                   w * 0.72f, h, w * 0.72f, SurfaceMaterial::GrassTop);
+            addBox(mesh, cx + w * 0.06f, baseY, cz - w * 0.20f,
+                   w * 0.60f, h * 0.80f, w * 0.60f, SurfaceMaterial::GrassTop);
+            if (node.stage >= 3) {
+                addBox(mesh, cx - w * 0.62f, baseY, cz + w * 0.06f,
+                       w * 0.50f, h * 0.66f, w * 0.50f, SurfaceMaterial::GrassTop);
             }
-            if (node.stage >= 3 && tier == SurfaceDetailTier::Hero) {
-                addBox(mesh, cx - w * 0.62f, baseY, cz + w * 0.10f, w * 0.44f, h * 0.62f, w * 0.44f, SurfaceMaterial::GrassTop);
+            if (node.stage >= 4 && tier == SurfaceDetailTier::Hero) {
+                addBox(mesh, cx + w * 0.18f, baseY, cz + w * 0.14f,
+                       w * 0.42f, h * 0.54f, w * 0.42f, SurfaceMaterial::GrassTop);
             }
             addFlower(mesh, cx, baseY + h, cz, node.flower);
         }
+    }
+}
+
+void addSoilClods(VoxelMesh& mesh, int x, int y, int z, std::uint32_t h, SurfaceDetailTier tier) {
+    const int count = tier == SurfaceDetailTier::Hero ? 5 : 3;
+    for (int i = 0; i < count; ++i) {
+        const std::uint32_t ch = h ^ (0x6d2b79f5u * static_cast<std::uint32_t>(i + 1));
+        if ((ch % 7u) == 0u) continue;
+        const float ox = 0.08f + static_cast<float>((ch >> 3) % 8u) * 0.105f;
+        const float oz = 0.08f + static_cast<float>((ch >> 9) % 8u) * 0.105f;
+        const float sx = 0.060f + static_cast<float>((ch >> 15) % 4u) * 0.028f;
+        const float sz = 0.060f + static_cast<float>((ch >> 19) % 4u) * 0.026f;
+        const float sy = 0.012f + static_cast<float>((ch >> 23) % 3u) * 0.009f;
+        addBox(mesh, static_cast<float>(x) + ox, static_cast<float>(y + 1), static_cast<float>(z) + oz,
+               sx, sy, sz, SurfaceMaterial::Dirt);
     }
 }
 
@@ -130,29 +153,34 @@ void MicroDetailBuilder::append(const ChunkMeshingSnapshot& snapshot, VoxelMesh&
                     const std::uint32_t h = detailHash(wx, y, wz, snapshot.worldSeed);
                     if (block == BlockId::Grass) {
                         addGrassNodes(mesh, snapshot, x, y, z, nullptr, tier);
+                    } else if (block == BlockId::Dirt) {
+                        addSoilClods(mesh, x, y, z, h, tier);
                     } else if (block == BlockId::Stone) {
-                        const int plateCount = tier == SurfaceDetailTier::Hero ? 4 : 2;
+                        // Broad overlapping plates are the macro relief from the supplied stone block.
+                        // The shader supplies chipped micro-fractures; these boxes make the silhouette
+                        // physically stepped instead of relying only on a flat normal perturbation.
+                        const int plateCount = tier == SurfaceDetailTier::Hero ? 7 : 4;
                         for (int plate = 0; plate < plateCount; ++plate) {
                             const std::uint32_t ph = h ^ (0x9e3779b9u * static_cast<std::uint32_t>(plate + 1));
-                            if ((ph % 5u) == 0u) continue;
-                            const float ox = 0.05f + static_cast<float>((ph >> 4) % 8u) * 0.108f;
-                            const float oz = 0.05f + static_cast<float>((ph >> 9) % 8u) * 0.108f;
-                            const float width = 0.075f + static_cast<float>((ph >> 13) % 5u) * 0.031f;
-                            const float depth = 0.070f + static_cast<float>((ph >> 17) % 5u) * 0.029f;
-                            const float height = 0.014f + static_cast<float>((ph >> 21) % 4u) * 0.010f;
+                            if ((ph % 6u) == 0u) continue;
+                            const float ox = 0.035f + static_cast<float>((ph >> 4) % 8u) * 0.112f;
+                            const float oz = 0.035f + static_cast<float>((ph >> 9) % 8u) * 0.112f;
+                            const float width = 0.105f + static_cast<float>((ph >> 13) % 5u) * 0.040f;
+                            const float depth = 0.095f + static_cast<float>((ph >> 17) % 5u) * 0.038f;
+                            const float height = 0.014f + static_cast<float>((ph >> 21) % 4u) * 0.012f;
                             addBox(mesh, static_cast<float>(x) + ox, static_cast<float>(y + 1), static_cast<float>(z) + oz,
                                    width, height, depth, SurfaceMaterial::Stone);
                         }
                     } else if (block == BlockId::Leaves) {
-                        const int clusterCount = tier == SurfaceDetailTier::Hero ? 2 : 1;
+                        const int clusterCount = tier == SurfaceDetailTier::Hero ? 4 : 2;
                         for (int cluster = 0; cluster < clusterCount; ++cluster) {
                             const std::uint32_t lh = h ^ (0x632be59bu * static_cast<std::uint32_t>(cluster + 1));
-                            if ((lh % 4u) == 0u) continue;
-                            const float ox = 0.07f + static_cast<float>((lh >> 3) % 7u) * 0.125f;
-                            const float oz = 0.07f + static_cast<float>((lh >> 11) % 7u) * 0.125f;
-                            const float size = 0.065f + static_cast<float>((lh >> 19) % 4u) * 0.025f;
+                            if ((lh % 5u) == 0u) continue;
+                            const float ox = 0.06f + static_cast<float>((lh >> 3) % 7u) * 0.128f;
+                            const float oz = 0.06f + static_cast<float>((lh >> 11) % 7u) * 0.128f;
+                            const float size = 0.070f + static_cast<float>((lh >> 19) % 4u) * 0.028f;
                             addBox(mesh, static_cast<float>(x) + ox, static_cast<float>(y + 1), static_cast<float>(z) + oz,
-                                   size, size * 0.58f, size, SurfaceMaterial::Leaves);
+                                   size, size * 0.62f, size, SurfaceMaterial::Leaves);
                         }
                     }
                     break;

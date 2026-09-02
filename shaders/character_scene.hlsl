@@ -47,10 +47,53 @@ float4 PSCharacter(VSOutput input) : SV_Target0 {
     float roughness = 0.80;
     float metallic = 0.0;
 
-    if (material == 11u) { // warm tan/peach skin from the supplied barbarian reference
-        // Keep the body visibly voxel-built: broad color families change per small world-space cell
-        // instead of a smooth porcelain gradient. Highlights are intentionally restrained so skin
-        // does not blow out to the near-white sheet seen in the 0.5.1 first-person screenshot.
+    // IDs 0..6 are terrain surface materials. They can appear here only on a held first-person
+    // hotbar block; world terrain itself still uses the dedicated terrain shader. Keeping these
+    // branches local to the character/viewmodel pipeline lets the held item retain its real identity.
+    if (material == 0u) { // grass top
+        const float3 deep = float3(0.055, 0.205, 0.032);
+        const float3 mid = float3(0.185, 0.420, 0.073);
+        const float3 light = float3(0.340, 0.585, 0.115);
+        albedo = lerp(deep, mid, 0.32 + medium * 0.46);
+        albedo = lerp(albedo, light, step(0.76, voxelVariation) * 0.30);
+        roughness = 0.95;
+    } else if (material == 1u) { // grass side / rooted soil
+        const float greenMask = step(0.58, voxelVariation);
+        const float3 soil = lerp(float3(0.105,0.048,0.020), float3(0.305,0.155,0.055), 0.28 + medium * 0.52);
+        const float3 turf = lerp(float3(0.060,0.215,0.032), float3(0.260,0.485,0.082), 0.30 + fine * 0.50);
+        albedo = lerp(soil, turf, greenMask * 0.48);
+        roughness = 0.97;
+    } else if (material == 2u) { // dirt
+        const float darkChip = step(voxelVariation, 0.13);
+        const float pebble = step(0.93, hash31(voxelCell * 2.31 + 83.0));
+        albedo = lerp(float3(0.090,0.040,0.016), float3(0.300,0.145,0.050), 0.30 + medium * 0.52);
+        albedo = lerp(albedo, float3(0.39,0.22,0.08), step(0.74, fine) * 0.24);
+        albedo = lerp(albedo, float3(0.31,0.29,0.25), pebble * 0.64);
+        albedo *= 1.0 - darkChip * 0.16;
+        roughness = 0.97;
+    } else if (material == 3u) { // stone
+        const float fracture = step(voxelVariation, 0.10);
+        const float mineral = step(0.95, hash31(voxelCell * 2.77 + 211.0));
+        albedo = lerp(float3(0.145,0.155,0.165), float3(0.355,0.365,0.360), 0.28 + medium * 0.50);
+        albedo = lerp(albedo, float3(0.54,0.52,0.47), mineral * 0.36);
+        albedo *= 1.0 - fracture * 0.24;
+        roughness = 0.91;
+    } else if (material == 4u) { // bark
+        const float fissure = step(voxelVariation, 0.12);
+        albedo = lerp(float3(0.055,0.022,0.008), float3(0.285,0.120,0.032), 0.30 + medium * 0.55);
+        albedo = lerp(albedo, float3(0.42,0.22,0.07), step(0.78, fine) * 0.20);
+        albedo *= 1.0 - fissure * 0.30;
+        roughness = 0.96;
+    } else if (material == 5u) { // cut wood
+        const float band = step(0.50, hash31(floor(input.worldPosition * 13.0) + 17.0));
+        albedo = lerp(float3(0.18,0.070,0.018), float3(0.58,0.34,0.105), 0.32 + medium * 0.50);
+        albedo *= lerp(0.88, 1.08, band);
+        roughness = 0.90;
+    } else if (material == 6u) { // leaves
+        albedo = lerp(float3(0.025,0.125,0.022), float3(0.115,0.345,0.052), 0.28 + medium * 0.58);
+        albedo = lerp(albedo, float3(0.265,0.510,0.095), step(0.80, voxelVariation) * 0.28);
+        roughness = 0.90;
+    } else if (material == 11u) { // warm tan/peach skin from the supplied barbarian reference
         const float3 shadowSkin = float3(0.30, 0.115, 0.042);
         const float3 baseSkin = float3(0.56, 0.275, 0.115);
         const float3 warmSkin = float3(0.72, 0.425, 0.205);

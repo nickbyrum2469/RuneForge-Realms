@@ -35,6 +35,12 @@ struct PlayerBodyPose {
     LegPose leftLeg{};
 };
 
+struct BodyMotionState {
+    float locomotionAmount{};
+    float locomotionPhase{};
+    float idlePhase{};
+};
+
 class PlayerBodyRig {
 public:
     static constexpr float referenceHeight = 1.80f;
@@ -48,7 +54,8 @@ public:
                                               Vec3 facingForward,
                                               bool crouching = false,
                                               const Vec3* rightHandTarget = nullptr,
-                                              const Vec3* leftHandTarget = nullptr) noexcept;
+                                              const Vec3* leftHandTarget = nullptr,
+                                              const BodyMotionState* motion = nullptr) noexcept;
 
     [[nodiscard]] static ArmPose solveArm(Vec3 shoulder,
                                           Vec3 desiredHand,
