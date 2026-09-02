@@ -10,7 +10,9 @@ public:
     void release() noexcept { held_ = false; }
     void reset() noexcept { held_ = false; cooldownSeconds_ = 0.0f; }
 
-    [[nodiscard]] bool update(float deltaSeconds, float strikeIntervalSeconds) noexcept;
+    // allowStrike=false still advances recovery but cannot consume/reset a ready strike. This is
+    // used while a physical hand/tool animation is already active.
+    [[nodiscard]] bool update(float deltaSeconds, float strikeIntervalSeconds, bool allowStrike = true) noexcept;
     [[nodiscard]] bool held() const noexcept { return held_; }
     [[nodiscard]] float cooldownSeconds() const noexcept { return cooldownSeconds_; }
 
