@@ -11,11 +11,7 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
     const auto forward = player_.lookDirection();
     game::Vec3 right = game::normalized({forward.z, 0.0f, -forward.x});
     if (game::lengthSquared(right) <= 0.000001f) right = {1.0f, 0.0f, 0.0f};
-    const game::Vec3 up = game::normalized({
-        -forward.y * right.z,
-        forward.z * right.x - forward.x * right.z,
-        -forward.y * right.x,
-    });
+    const game::Vec3 up = game::normalized(game::cross(forward, right));
     const world::VoxelMesh mesh = scene::FirstPersonBodyBuilder::build(eye, forward, right, up, miningSwing_.pose());
     if (mesh.empty()) {
         firstPersonIndexCount_ = 0;
