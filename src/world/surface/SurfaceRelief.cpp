@@ -86,8 +86,6 @@ bool rootCell(std::uint32_t base, int u, int v) noexcept {
     const int centerB = std::clamp(startB + driftB * (depth / 5), 1, 14);
 
     if (u == centerA || (depth > 7 && u == centerB)) return true;
-
-    // Deterministic short side branches. They only occupy a few cells so roots remain readable.
     if (depth >= 5 && depth <= 10 && (depth % 3) == static_cast<int>((base >> 27) % 3u)) {
         const int branch = centerA + ((((base >> (depth % 16)) & 1u) != 0u) ? 1 : -1);
         if (u == branch) return true;
@@ -109,7 +107,6 @@ SurfaceReliefField SurfaceRelief::grassTop(std::uint32_t worldSeed, BlockCoord b
     field.vegetationHeightScale = 0.90f + unit(patch >> 7) * 0.18f;
     field.paletteFamily = static_cast<std::uint8_t>((patch >> 19) & 3u);
 
-    // Age is quantized and may mature height slightly, but it never changes layout/presence.
     const float age = std::max(worldAgeSeconds, 0.0f);
     const float mature = std::min(std::floor(age / 64.0f), 2.0f) * 0.035f;
 
@@ -126,8 +123,8 @@ SurfaceReliefField SurfaceRelief::grassTop(std::uint32_t worldSeed, BlockCoord b
                 : 0.008f + unit(h >> 10) * 0.020f;
             cell.occupied = true;
 
-            // Jitter applies only to the vegetation attachment, not the tile itself, preserving a
-            // clean continuous constructed turf surface while breaking long blade row phases.
+            // The material cell stays tiled; only its attached vegetation shifts within the cell.
+            // This preserves crisp constructed turf while destroying long world-space blade rows.
             cell.vegetationOffsetU = signedUnit(h >> 4) * 0.020f;
             cell.vegetationOffsetV = signedUnit(h >> 13) * 0.020f;
 
@@ -145,8 +142,8 @@ SurfaceReliefField SurfaceRelief::grassTop(std::uint32_t worldSeed, BlockCoord b
     return field;
 }
 
-SurfaceReliefField SurfaceRelief::rootedSide(std::uint32_t worldSeed, BlockCoord block,
-                                             SurfaceFace face) noexcept {
+SurfaceReliefField SurfaceRelief::soilSide(std::uint32_t worldSeed, BlockCoord block,
+                                           SurfaceFace face, bool includeTurfLip) noexcept {
     SurfaceReliefField field;
     const std::uint32_t faceSalt = 0x3c6ef372u + static_cast<std::uint32_t>(face) * 0x9e3779b9u;
     const std::uint32_t base = hashBlock(worldSeed, block, faceSalt);
@@ -160,8 +157,8 @@ SurfaceReliefField SurfaceRelief::rootedSide(std::uint32_t worldSeed, BlockCoord
             cell.colorFamily = static_cast<std::uint8_t>((field.paletteFamily + ((h >> 14) & 3u)) & 3u);
 
             const int irregularLip = 2 + static_cast<int>((hashCell(base ^ 0x8da6b343u, u, 0) >> 7) % 3u);
-            const bool turfLip = v >= SurfaceReliefField::resolution - irregularLip;
-            const bool root = !turfLip && rootCell(base, u, v);
+            const bool turfLip = includeTurfLip && v >= SurfaceReliefField::resolution - irregularLip;
+            const bool root = includeTurfLip && !turfLip && rootCell(base, u, v);
             const bool mineral = !turfLip && !root && ((h >> 11) % 43u) == 0u;
             const bool cavity = !turfLip && !root && !mineral && ((h >> 5) % 9u) == 0u;
 
@@ -177,7 +174,7 @@ SurfaceReliefField SurfaceRelief::rootedSide(std::uint32_t worldSeed, BlockCoord
             } else if (cavity) {
                 cell.relief = ReliefClass::Cavity;
                 cell.cavity = true;
-                cell.occupied = false; // The macro face remains behind it, reading as a recess.
+                cell.occupied = false; // The macro face behind the omitted cell is the recess floor.
                 cell.heightOffset = 0.001f;
             } else {
                 cell.relief = ReliefClass::SoilClod;
