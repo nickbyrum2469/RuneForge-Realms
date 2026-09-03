@@ -68,8 +68,8 @@ void InventoryPainter::createTextResources() {
             output->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
         }
     };
-    make(L"Bahnschrift", 38.0f, DWRITE_FONT_WEIGHT_BLACK, titleFormat_);
-    make(L"Bahnschrift", 20.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, headingFormat_);
+    make(L"Georgia", 38.0f, DWRITE_FONT_WEIGHT_BOLD, titleFormat_);
+    make(L"Georgia", 20.0f, DWRITE_FONT_WEIGHT_BOLD, headingFormat_);
     make(L"Segoe UI", 14.0f, DWRITE_FONT_WEIGHT_NORMAL, bodyFormat_);
     make(L"Segoe UI", 12.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, smallFormat_);
     make(L"Segoe UI", 10.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, tinyFormat_);
@@ -87,6 +87,7 @@ void InventoryPainter::createDeviceResources() {
 }
 
 void InventoryPainter::discardDeviceResources() { target_.Reset(); }
+
 void InventoryPainter::resize(unsigned width, unsigned height) {
     pixelWidth_ = std::max(width, 1u);
     pixelHeight_ = std::max(height, 1u);
@@ -122,6 +123,7 @@ void InventoryPainter::fillGradient(const Rect& rect, D2D1_COLOR_F top, D2D1_COL
 
 void InventoryPainter::text(std::wstring_view value, const Rect& rect, IDWriteTextFormat* format,
                             D2D1_COLOR_F valueColor, DWRITE_TEXT_ALIGNMENT alignment) {
+    if (!format) return;
     ComPtr<ID2D1SolidColorBrush> brush;
     target_->CreateSolidColorBrush(valueColor, brush.ReleaseAndGetAddressOf());
     format->SetTextAlignment(alignment);
@@ -130,59 +132,90 @@ void InventoryPainter::text(std::wstring_view value, const Rect& rect, IDWriteTe
 }
 
 void InventoryPainter::drawGem(float x, float y, float size) {
-    fillRect({x, y, size, size}, color(theme::BlueGem, 0.30f), size * 0.25f);
-    fillRect({x + size * 0.18f, y + size * 0.18f, size * 0.64f, size * 0.64f},
-             color(theme::BlueGem, 0.95f), size * 0.18f);
-    strokeRect({x - 2, y - 2, size + 4, size + 4}, color(theme::Gold, 0.65f), 1.4f, size * 0.30f);
+    const float cx = x + size * 0.5f;
+    const float cy = y + size * 0.5f;
+    const float r = size * 0.5f;
+    ComPtr<ID2D1PathGeometry> geometry;
+    if (FAILED(d2dFactory_->CreatePathGeometry(geometry.ReleaseAndGetAddressOf())) || !geometry) return;
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(geometry->Open(sink.ReleaseAndGetAddressOf())) || !sink) return;
+    sink->BeginFigure(D2D1::Point2F(cx, cy - r), D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLine(D2D1::Point2F(cx + r, cy));
+    sink->AddLine(D2D1::Point2F(cx, cy + r));
+    sink->AddLine(D2D1::Point2F(cx - r, cy));
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    sink->Close();
+
+    ComPtr<ID2D1SolidColorBrush> fillBrush;
+    ComPtr<ID2D1SolidColorBrush> edgeBrush;
+    target_->CreateSolidColorBrush(color(theme::BlueGem), fillBrush.ReleaseAndGetAddressOf());
+    target_->CreateSolidColorBrush(color(theme::GoldBright), edgeBrush.ReleaseAndGetAddressOf());
+    target_->FillGeometry(geometry.Get(), fillBrush.Get());
+    target_->DrawGeometry(geometry.Get(), edgeBrush.Get(), 1.5f);
+    fillRect({cx - r * 0.18f, cy - r * 0.42f, r * 0.34f, r * 0.34f}, color(theme::BlueCore, 0.86f), 1.0f);
 }
 
 void InventoryPainter::drawDivider(float x, float y, float width) {
-    fillRect({x, y, width, 2}, color(theme::Bronze, 0.70f));
-    fillRect({x + width * 0.5f - 38, y - 1, 76, 4}, color(theme::BronzeDark, 0.90f), 2);
-    drawGem(x + width * 0.5f - 7, y - 7, 14);
+    fillRect({x, y, width, 4}, color(theme::BronzeDeep, 0.96f));
+    fillRect({x, y, width, 1.2f}, color(theme::Gold, 0.82f));
+    drawGem(x + width * 0.5f - 6, y - 5, 12);
 }
 
 void InventoryPainter::drawBackdrop() {
-    fillGradient(layout_.backdrop, color(0x050812), color(0x1d1515));
-    fillRect({0, 0, 1600, 900}, color(0x02040a, 0.34f));
-    for (int i = 0; i < 18; ++i) {
-        const float y = 30.0f + i * 52.0f;
-        fillRect({0, y, 1600, 1.0f}, color(0xa67a3b, (i % 3 == 0) ? 0.055f : 0.025f));
+    fillGradient(layout_.backdrop, color(0x080b10), color(0x030406));
+    // Quiet silhouettes keep the popup from reading like a blank developer window while leaving
+    // inventory information dominant, echoing the old cinematic RuneForge sunset-menu reference.
+    for (int i = 0; i < 11; ++i) {
+        const float x = -30.0f + static_cast<float>(i) * 155.0f;
+        const float h = 70.0f + static_cast<float>((i * 53) % 120);
+        fillRect({x, 900.0f - h, 120.0f, h}, color(0x0b1016, 0.74f));
     }
+    fillRect({0, 0, 1600, 900}, color(0x020308, 0.24f));
 }
 
 void InventoryPainter::drawOuterFrame() {
-    fillRect(layout_.outerFrame, color(theme::Panel, 0.985f), 14);
-    strokeRect(layout_.outerFrame, color(theme::BronzeDark, 0.95f), 8.0f, 14);
+    fillRect(layout_.outerFrame, color(theme::Panel, 0.995f), 7);
+    strokeRect(layout_.outerFrame, color(theme::BronzeDeep), 9.0f, 7);
     strokeRect({layout_.outerFrame.x + 8, layout_.outerFrame.y + 8,
                 layout_.outerFrame.w - 16, layout_.outerFrame.h - 16},
-               color(theme::Gold, 0.78f), 1.7f, 10);
-    strokeRect({layout_.outerFrame.x + 16, layout_.outerFrame.y + 16,
-                layout_.outerFrame.w - 32, layout_.outerFrame.h - 32},
-               color(0x30435b, 0.65f), 1.0f, 7);
-    fillGradient(layout_.titlePlate, color(0x221b12), color(0x0d1018));
-    strokeRect(layout_.titlePlate, color(theme::Gold, 0.94f), 2.0f, 11);
-    text(L"FORGEKEEPER'S PACK", layout_.titlePlate, titleFormat_.Get(), color(theme::Ivory), DWRITE_TEXT_ALIGNMENT_CENTER);
-    drawGem(layout_.titlePlate.x - 24, layout_.titlePlate.y + 20, 20);
-    drawGem(layout_.titlePlate.x + layout_.titlePlate.w + 4, layout_.titlePlate.y + 20, 20);
-    text(L"I / ESC  RETURN TO FRONTIER", {1170, 84, 230, 24}, tinyFormat_.Get(), color(theme::Muted), DWRITE_TEXT_ALIGNMENT_TRAILING);
+               color(theme::Bronze), 2.3f, 5);
+    strokeRect({layout_.outerFrame.x + 14, layout_.outerFrame.y + 14,
+                layout_.outerFrame.w - 28, layout_.outerFrame.h - 28},
+               color(theme::Gold, 0.48f), 0.9f, 3);
+
+    fillGradient(layout_.titlePlate, color(0x24180d), color(theme::PanelRaised));
+    strokeRect(layout_.titlePlate, color(theme::BronzeDeep), 6.0f, 5);
+    strokeRect({layout_.titlePlate.x + 5, layout_.titlePlate.y + 5,
+                layout_.titlePlate.w - 10, layout_.titlePlate.h - 10},
+               color(theme::Gold, 0.90f), 1.6f, 3);
+    text(L"FORGEKEEPER'S PACK", {layout_.titlePlate.x, layout_.titlePlate.y + 2,
+                                  layout_.titlePlate.w, 53}, titleFormat_.Get(),
+         color(theme::GoldBright), DWRITE_TEXT_ALIGNMENT_CENTER);
+    text(L"FRONTIER INVENTORY", {layout_.titlePlate.x, layout_.titlePlate.y + 54,
+                                   layout_.titlePlate.w, 22}, tinyFormat_.Get(),
+         color(theme::BlueGlow), DWRITE_TEXT_ALIGNMENT_CENTER);
+    drawGem(layout_.titlePlate.x - 10, layout_.titlePlate.y + 31, 20);
+    drawGem(layout_.titlePlate.x + layout_.titlePlate.w - 10, layout_.titlePlate.y + 31, 20);
+    text(L"I / ESC  RETURN TO FRONTIER", {1180, 80, 235, 24}, tinyFormat_.Get(),
+         color(theme::Muted), DWRITE_TEXT_ALIGNMENT_TRAILING);
 }
 
 void InventoryPainter::drawSlot(const Rect& rect, bool selected) {
-    const auto border = selected ? color(theme::GoldBright, 0.98f) : color(theme::Bronze, 0.58f);
-    fillGradient(rect, color(0x050911, 0.98f), color(0x111823, 0.98f));
-    strokeRect(rect, color(0x02040a), 5.0f, 6);
-    strokeRect({rect.x + 3, rect.y + 3, rect.w - 6, rect.h - 6}, border, selected ? 2.4f : 1.2f, 5);
-    fillRect({rect.x + 9, rect.y + 9, rect.w - 18, 2}, color(0xffffff, 0.045f), 1);
+    const auto border = selected ? color(theme::GoldBright, 0.98f) : color(theme::Bronze, 0.66f);
+    fillGradient(rect, color(theme::PanelInset), color(0x111318));
+    strokeRect(rect, color(theme::BronzeDeep), 4.0f, 3);
+    strokeRect({rect.x + 4, rect.y + 4, rect.w - 8, rect.h - 8}, border,
+               selected ? 2.2f : 1.0f, 2);
+    fillRect({rect.x + 8, rect.y + 8, rect.w - 16, 1.5f}, color(0xffffff, 0.045f));
 }
 
 void InventoryPainter::drawItemCube(const Rect& rect, unsigned top, unsigned side, unsigned edge) {
     const float size = std::min(rect.w, rect.h) * 0.48f;
     const float x = rect.x + (rect.w - size) * 0.5f;
     const float y = rect.y + (rect.h - size) * 0.43f;
-    fillRect({x + size * 0.10f, y + size * 0.14f, size * 0.82f, size * 0.78f}, color(side), 4);
-    fillRect({x + size * 0.16f, y, size * 0.70f, size * 0.30f}, color(top), 4);
-    strokeRect({x + size * 0.10f, y, size * 0.82f, size * 0.92f}, color(edge, 0.78f), 1.2f, 4);
+    fillRect({x + size * 0.10f, y + size * 0.14f, size * 0.82f, size * 0.78f}, color(side), 3);
+    fillRect({x + size * 0.16f, y, size * 0.70f, size * 0.30f}, color(top), 3);
+    strokeRect({x + size * 0.10f, y, size * 0.82f, size * 0.92f}, color(edge, 0.78f), 1.2f, 3);
 }
 
 void InventoryPainter::drawStack(const Rect& rect, const game::inventory::ItemStack& stack) {
@@ -194,46 +227,66 @@ void InventoryPainter::drawStack(const Rect& rect, const game::inventory::ItemSt
 }
 
 void InventoryPainter::drawEquipment() {
-    fillGradient(layout_.equipmentPanel, color(0x0b1018, 0.98f), color(0x080b11, 0.98f));
-    strokeRect(layout_.equipmentPanel, color(theme::Bronze, 0.68f), 1.5f, 10);
-    text(L"EQUIPMENT", {215, 165, 415, 38}, headingFormat_.Get(), color(theme::GoldBright), DWRITE_TEXT_ALIGNMENT_CENTER);
-    drawDivider(235, 205, 375);
-    fillGradient(layout_.characterViewport, color(0x0d1722), color(0x06090e));
-    strokeRect(layout_.characterViewport, color(0x37506d, 0.70f), 1.1f, 9);
-    fillRect({397, 252, 58, 58}, color(0x1f3346), 20);
-    fillGradient({376, 318, 100, 148}, color(0x263d51), color(0x142535));
-    fillRect({350, 330, 28, 132}, color(0x1a2d3e), 10);
-    fillRect({474, 330, 28, 132}, color(0x1a2d3e), 10);
-    fillRect({389, 460, 34, 120}, color(0x17293a), 10);
-    fillRect({430, 460, 34, 120}, color(0x17293a), 10);
+    fillGradient(layout_.equipmentPanel, color(theme::PanelRaised, 0.98f), color(theme::PanelInset, 0.99f));
+    strokeRect(layout_.equipmentPanel, color(theme::BronzeDeep), 5.0f, 5);
+    strokeRect({layout_.equipmentPanel.x + 6, layout_.equipmentPanel.y + 6,
+                layout_.equipmentPanel.w - 12, layout_.equipmentPanel.h - 12},
+               color(theme::Gold, 0.56f), 1.0f, 3);
+    text(L"EQUIPMENT", {195, 184, 420, 34}, headingFormat_.Get(), color(theme::GoldBright), DWRITE_TEXT_ALIGNMENT_CENTER);
+    drawDivider(215, 223, 380);
+
+    fillGradient(layout_.characterViewport, color(0x11161d), color(0x07090d));
+    strokeRect(layout_.characterViewport, color(theme::Bronze, 0.55f), 1.4f, 4);
+    // Simple paper-doll silhouette remains a preview placeholder; the framing now makes that status
+    // intentional instead of pretending to be the finished 3D avatar preview.
+    fillRect({397, 272, 52, 52}, color(0x24303a), 12);
+    fillGradient({379, 326, 88, 120}, color(0x293846), color(0x17212b));
+    fillRect({355, 338, 25, 108}, color(0x1e2a34), 7);
+    fillRect({466, 338, 25, 108}, color(0x1e2a34), 7);
+    fillRect({390, 440, 30, 112}, color(0x1b2731), 7);
+    fillRect({427, 440, 30, 112}, color(0x1b2731), 7);
+    text(L"GEAR PREVIEW", {345, 552, 155, 18}, tinyFormat_.Get(), color(theme::Muted), DWRITE_TEXT_ALIGNMENT_CENTER);
+
     for (std::size_t i = 0; i < layout_.equipmentSlots.size(); ++i) {
         drawSlot(layout_.equipmentSlots[i]);
-        text(equipmentLabels[i], {layout_.equipmentSlots[i].x, layout_.equipmentSlots[i].y + 80,
-                                  layout_.equipmentSlots[i].w, 18}, tinyFormat_.Get(), color(theme::Muted), DWRITE_TEXT_ALIGNMENT_CENTER);
+        text(equipmentLabels[i], {layout_.equipmentSlots[i].x, layout_.equipmentSlots[i].y + 78,
+                                  layout_.equipmentSlots[i].w, 18}, tinyFormat_.Get(), color(theme::Muted),
+             DWRITE_TEXT_ALIGNMENT_CENTER);
     }
-    fillRect({240, 650, 365, 74}, color(0x0c131d), 8);
-    strokeRect({240, 650, 365, 74}, color(0x355679, 0.68f), 1.0f, 8);
-    text(L"FORGEKEEPER", {258, 660, 190, 24}, headingFormat_.Get(), color(theme::Ivory));
-    text(L"Frontier wanderer  •  Equipment system forming", {258, 687, 318, 20}, smallFormat_.Get(), color(theme::Muted));
+
+    fillRect({205, 625, 400, 92}, color(theme::PanelInset), 4);
+    strokeRect({205, 625, 400, 92}, color(theme::Bronze, 0.62f), 1.2f, 4);
+    drawGem(220, 651, 20);
+    text(L"FORGEKEEPER", {252, 638, 195, 28}, headingFormat_.Get(), color(theme::Ivory));
+    text(L"Frontier wanderer  |  Equipment system forming",
+         {252, 672, 325, 22}, smallFormat_.Get(), color(theme::Muted));
 }
 
 void InventoryPainter::drawQuickCraft() {
-    fillRect(layout_.quickCraftPanel, color(0x080d14, 0.98f), 9);
-    strokeRect(layout_.quickCraftPanel, color(theme::Bronze, 0.58f), 1.1f, 9);
-    text(L"QUICK CRAFT", {1028, 216, 312, 28}, headingFormat_.Get(), color(theme::GoldBright), DWRITE_TEXT_ALIGNMENT_CENTER);
+    fillGradient(layout_.quickCraftPanel, color(0x121318, 0.99f), color(theme::PanelInset, 0.99f));
+    strokeRect(layout_.quickCraftPanel, color(theme::BronzeDeep), 4.0f, 4);
+    strokeRect({layout_.quickCraftPanel.x + 5, layout_.quickCraftPanel.y + 5,
+                layout_.quickCraftPanel.w - 10, layout_.quickCraftPanel.h - 10},
+               color(theme::Gold, 0.48f), 0.9f, 2);
+    text(L"QUICK CRAFT", {1038, 248, 335, 26}, headingFormat_.Get(), color(theme::GoldBright), DWRITE_TEXT_ALIGNMENT_CENTER);
     for (std::size_t i = 0; i < layout_.craftSlots.size(); ++i) drawSlot(layout_.craftSlots[i], false);
-    text(L"Recipes unlock in the survival crafting pass", {1030, 282, 310, 24}, smallFormat_.Get(), color(theme::Muted), DWRITE_TEXT_ALIGNMENT_CENTER);
+    text(L"RECIPES ARRIVE WITH SURVIVAL CRAFTING", {1040, 350, 330, 18}, tinyFormat_.Get(),
+         color(theme::Muted), DWRITE_TEXT_ALIGNMENT_CENTER);
 }
 
 void InventoryPainter::drawInventoryGrid() {
-    fillGradient(layout_.inventoryPanel, color(0x0b1017, 0.99f), color(0x070a0f, 0.99f));
-    strokeRect(layout_.inventoryPanel, color(theme::Bronze, 0.68f), 1.5f, 10);
-    text(L"INVENTORY", {735, 165, 640, 38}, headingFormat_.Get(), color(theme::GoldBright), DWRITE_TEXT_ALIGNMENT_CENTER);
-    drawDivider(765, 205, 580);
+    fillGradient(layout_.inventoryPanel, color(theme::PanelRaised, 0.99f), color(theme::PanelInset, 0.99f));
+    strokeRect(layout_.inventoryPanel, color(theme::BronzeDeep), 5.0f, 5);
+    strokeRect({layout_.inventoryPanel.x + 6, layout_.inventoryPanel.y + 6,
+                layout_.inventoryPanel.w - 12, layout_.inventoryPanel.h - 12},
+               color(theme::Gold, 0.56f), 1.0f, 3);
+    text(L"INVENTORY", {715, 184, 680, 34}, headingFormat_.Get(), color(theme::GoldBright), DWRITE_TEXT_ALIGNMENT_CENTER);
+    drawDivider(735, 223, 640);
+
     const std::wstring mode = wide(game::mining::miningModeName(miningMode_));
-    text(L"MINING MODE  •  " + mode, {750, 224, 300, 24}, smallFormat_.Get(), color(theme::BlueGlow));
-    text(L"Collected blocks are real survival stacks. Break terrain, pick up drops, then place from your selected hotbar slot.",
-         {750, 247, 580, 44}, bodyFormat_.Get(), color(theme::Muted));
+    text(L"MINING MODE  |  " + mode, {725, 245, 285, 22}, smallFormat_.Get(), color(theme::BlueGlow));
+    text(L"Collected blocks are real stacks. Break terrain, recover drops, then build from the selected hotbar slot.",
+         {725, 271, 280, 58}, bodyFormat_.Get(), color(theme::Muted));
     drawQuickCraft();
 
     for (std::size_t i = 0; i < layout_.inventorySlots.size(); ++i) {
@@ -243,15 +296,20 @@ void InventoryPainter::drawInventoryGrid() {
         drawStack(layout_.inventorySlots[i], stack);
         if (!stack.empty()) {
             const auto visual = visualFor(stack.item);
-            text(visual.name, {layout_.inventorySlots[i].x + 4, layout_.inventorySlots[i].y + 57,
-                              layout_.inventorySlots[i].w - 8, 16}, tinyFormat_.Get(), color(theme::Ivory), DWRITE_TEXT_ALIGNMENT_CENTER);
+            text(visual.name, {layout_.inventorySlots[i].x + 4, layout_.inventorySlots[i].y + 55,
+                              layout_.inventorySlots[i].w - 8, 16}, tinyFormat_.Get(), color(theme::Ivory),
+                 DWRITE_TEXT_ALIGNMENT_CENTER);
         }
     }
 }
 
 void InventoryPainter::drawHotbar() {
-    fillRect(layout_.hotbarPanel, color(0x05080e, 0.96f), 10);
-    strokeRect(layout_.hotbarPanel, color(theme::BronzeDark, 0.92f), 2.0f, 10);
+    fillRect(layout_.hotbarPanel, color(theme::Panel, 0.995f), 5);
+    strokeRect(layout_.hotbarPanel, color(theme::BronzeDeep), 5.0f, 5);
+    strokeRect({layout_.hotbarPanel.x + 5, layout_.hotbarPanel.y + 5,
+                layout_.hotbarPanel.w - 10, layout_.hotbarPanel.h - 10},
+               color(theme::Gold, 0.50f), 0.9f, 3);
+    drawGem(layout_.hotbarPanel.x + layout_.hotbarPanel.w * 0.5f - 7, layout_.hotbarPanel.y - 7, 14);
     for (std::size_t i = 0; i < layout_.hotbarSlots.size(); ++i) {
         drawSlot(layout_.hotbarSlots[i], i == inventory_.selectedHotbar());
         drawStack(layout_.hotbarSlots[i], inventory_.slot(i));
