@@ -16,6 +16,7 @@ public:
     void spawn(Vec3 feetPosition, float yaw = 0.0f, float pitch = -0.08f) noexcept;
     void setControl(MoveControl control, bool pressed) noexcept;
     void requestJump() noexcept { jumpRequested_ = true; }
+    void clearInputState() noexcept;
     void addLook(float deltaX, float deltaY) noexcept;
     void update(float deltaSeconds, const world::FrontierWorld& world) noexcept;
     void setMouseSensitivity(float scale) noexcept;
