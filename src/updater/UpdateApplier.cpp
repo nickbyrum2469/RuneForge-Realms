@@ -1,6 +1,7 @@
 #ifdef _WIN32
 
 #include "updater/UpdateApplier.h"
+#include "updater/PowerShellLiteral.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -13,8 +14,10 @@ UpdateApplier::UpdateApplier(std::filesystem::path installRoot) : installRoot_(s
 
 bool UpdateApplier::runPowerShellExpand(const std::filesystem::path& archive,
                                         const std::filesystem::path& destination) const {
-    std::wstring command = L"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Expand-Archive -LiteralPath '" +
-                           archive.wstring() + L"' -DestinationPath '" + destination.wstring() + L"' -Force\"";
+    const std::wstring archiveLiteral = powerShellSingleQuotedLiteral(archive.wstring());
+    const std::wstring destinationLiteral = powerShellSingleQuotedLiteral(destination.wstring());
+    std::wstring command = L"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Expand-Archive -LiteralPath " +
+                           archiveLiteral + L" -DestinationPath " + destinationLiteral + L" -Force\"";
     STARTUPINFOW si{};
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
