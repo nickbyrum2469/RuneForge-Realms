@@ -97,19 +97,23 @@ float smoothedVisualValue(std::uint32_t seed, int globalU, int globalV,
 
 VegetationProfile profileFor(std::uint32_t h, std::uint8_t& bladeCount) noexcept {
     const std::uint32_t roll = (h >> 5) % 100u;
-    if (roll < 13u) {
+
+    // Reference-correction: the premium target is a dense mass of short, blocky turf pieces,
+    // not a field dominated by isolated vertical sticks. Keep a few taller accents, but make
+    // two/three-piece compact tufts the majority of the deterministic anchor population.
+    if (roll < 8u) {
         bladeCount = 1;
         return VegetationProfile::TinyBlade;
     }
-    if (roll < 38u) {
+    if (roll < 30u) {
         bladeCount = 1;
         return VegetationProfile::ShortBlade;
     }
-    if (roll < 52u) {
+    if (roll < 34u) {
         bladeCount = 1;
         return VegetationProfile::TallBlade;
     }
-    if (roll < 77u) {
+    if (roll < 64u) {
         bladeCount = 2;
         return VegetationProfile::TwoBladeTuft;
     }
@@ -189,9 +193,9 @@ SurfaceReliefField SurfaceRelief::grassTop(std::uint32_t worldSeed, BlockCoord b
             cell.cavity = ((h >> 6) % 31u) == 0u;
             cell.relief = cell.cavity ? ReliefClass::Cavity : ReliefClass::Turf;
             cell.heightOffset = cell.cavity
-                ? 0.0020f + micro * 0.0035f
-                : std::clamp(0.0045f + bed * 0.0170f + (micro - 0.5f) * 0.0040f,
-                             0.0035f, 0.0255f);
+                ? 0.0015f + micro * 0.0030f
+                : std::clamp(0.0055f + bed * 0.0205f + (micro - 0.5f) * 0.0050f,
+                             0.0040f, 0.0320f);
             cell.occupied = true;
             field.cells[static_cast<std::size_t>(u + v * SurfaceReliefField::resolution)] = cell;
         }
@@ -232,9 +236,13 @@ SurfaceReliefField SurfaceRelief::grassTop(std::uint32_t worldSeed, BlockCoord b
             SurfaceReliefField::resolution - 1));
         anchor.colorFamily = static_cast<std::uint8_t>((field.paletteFamily + ((h >> 18) & 3u)) & 3u);
         anchor.vegetation = profileFor(h, anchor.bladeCount);
-        anchor.widthScale = 0.78f + unit(h >> 10) * 0.46f;
-        const float localHeight = 0.72f + unit(h >> 7) * 0.48f;
-        anchor.bladeHeight = (0.028f + unit(h >> 15) * 0.043f) *
+
+        // 0.6.2 removed the anchor lattice, but the actual pieces were still only ~1-1.5% of a
+        // block wide and therefore read as skinny lawn spikes. Keep the same anchor/budget model
+        // and widen each anchor into a short chunky turf voxel/clump instead.
+        anchor.widthScale = 2.00f + unit(h >> 10) * 0.90f;
+        const float localHeight = 0.80f + unit(h >> 7) * 0.28f;
+        anchor.bladeHeight = (0.020f + unit(h >> 15) * 0.030f) *
                              field.vegetationHeightScale * localHeight * (1.0f + mature);
 
         field.grassAnchors[field.grassAnchorCount++] = anchor;
@@ -273,20 +281,20 @@ SurfaceReliefField SurfaceRelief::soilSide(std::uint32_t worldSeed, BlockCoord b
             cell.stableId = static_cast<std::uint16_t>(h & 0xffffu);
             cell.colorFamily = static_cast<std::uint8_t>((field.paletteFamily + ((h >> 14) & 3u)) & 3u);
 
-            const int irregularLip = 3 + static_cast<int>((hashCell(base ^ 0x8da6b343u, u, 0) >> 7) % 3u);
+            const int irregularLip = 2 + static_cast<int>((hashCell(base ^ 0x8da6b343u, u, 0) >> 7) % 3u);
             const bool turfLip = includeTurfLip && v >= SurfaceReliefField::resolution - irregularLip;
             const bool mineral = !turfLip && ((h >> 11) % 41u) == 0u;
             const bool cavity = !turfLip && !mineral && ((h >> 5) % 17u) == 0u;
 
             if (turfLip) {
                 cell.relief = ReliefClass::Turf;
-                cell.heightOffset = std::clamp(0.027f + clodMass * 0.034f +
-                                               signedUnit(h >> 9) * 0.004f,
-                                               0.024f, 0.064f);
+                cell.heightOffset = std::clamp(0.028f + clodMass * 0.038f +
+                                               signedUnit(h >> 9) * 0.005f,
+                                               0.025f, 0.071f);
             } else if (mineral) {
                 cell.relief = ReliefClass::Mineral;
-                cell.heightOffset = std::clamp(0.034f + clodMass * 0.030f,
-                                               0.032f, 0.066f);
+                cell.heightOffset = std::clamp(0.036f + clodMass * 0.036f,
+                                               0.034f, 0.075f);
             } else if (cavity) {
                 cell.relief = ReliefClass::Cavity;
                 cell.cavity = true;
@@ -294,9 +302,9 @@ SurfaceReliefField SurfaceRelief::soilSide(std::uint32_t worldSeed, BlockCoord b
                 cell.heightOffset = 0.0f;
             } else {
                 cell.relief = ReliefClass::SoilClod;
-                cell.heightOffset = std::clamp(0.013f + clodMass * 0.039f +
-                                               signedUnit(h >> 8) * 0.005f,
-                                               0.011f, 0.058f);
+                cell.heightOffset = std::clamp(0.014f + clodMass * 0.047f +
+                                               signedUnit(h >> 8) * 0.006f,
+                                               0.011f, 0.067f);
             }
 
             field.cells[static_cast<std::size_t>(u + v * SurfaceReliefField::resolution)] = cell;
@@ -305,23 +313,24 @@ SurfaceReliefField SurfaceRelief::soilSide(std::uint32_t worldSeed, BlockCoord b
 
     if (!includeTurfLip) return field;
 
-    // Three or four stepped root paths descend from the turf. The soil shell remains complete under
-    // every path; root segments only project a thin extra fiber over it.
-    const int rootCount = 3 + static_cast<int>((base >> 19) & 1u);
+    // Four to six thinner stepped root paths descend from the turf. The reference uses many fine
+    // embedded fibers rather than a few dominant columns; the soil shell remains complete beneath
+    // every path so roots never replace the actual clod structure.
+    const int rootCount = 4 + static_cast<int>((base >> 19) % 3u);
     for (int root = 0; root < rootCount; ++root) {
         const std::uint32_t rootHash = mix(base ^ (0x632be59bu * static_cast<std::uint32_t>(root + 1)));
         float u = std::clamp((static_cast<float>(root + 1) / static_cast<float>(rootCount + 1)) +
                              signedUnit(rootHash >> 4) * 0.070f,
                              0.07f, 0.93f);
         float v = 0.91f - unit(rootHash >> 12) * 0.055f;
-        const int steps = 3 + static_cast<int>((rootHash >> 22) & 1u);
+        const int steps = 3 + static_cast<int>((rootHash >> 22) % 3u);
 
         for (int step = 0; step < steps && field.rootSegmentCount < SurfaceReliefField::maxRootSegments; ++step) {
             const std::uint32_t stepHash = mix(rootHash ^
                 (0x85ebca6bu * static_cast<std::uint32_t>(step + 1)));
-            const float width = 0.0070f + unit(stepHash >> 5) * 0.0060f;
-            const float projection = 0.0055f + unit(stepHash >> 14) * 0.0060f;
-            const float drop = 0.075f + unit(stepHash >> 8) * 0.060f;
+            const float width = 0.0045f + unit(stepHash >> 5) * 0.0045f;
+            const float projection = 0.0050f + unit(stepHash >> 14) * 0.0050f;
+            const float drop = 0.065f + unit(stepHash >> 8) * 0.055f;
             const float nextV = std::max(0.28f, v - drop);
             appendRootSegment(field, stepHash, u, v, u, nextV, width, projection);
             v = nextV;

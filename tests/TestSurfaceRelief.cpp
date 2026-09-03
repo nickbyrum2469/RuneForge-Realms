@@ -76,6 +76,8 @@ void runSurfaceReliefTests() {
     assert(fieldA.grassAnchorCount >= 120 && fieldA.grassAnchorCount <= 132);
     std::set<int> ownerCells;
     int nearCellEdge = 0;
+    int multiPieceAnchors = 0;
+    int tallAnchors = 0;
     float nearestMin = std::numeric_limits<float>::max();
     float nearestMax = 0.0f;
 
@@ -85,7 +87,10 @@ void runSurfaceReliefTests() {
         assert(anchor.localV >= 0.0f && anchor.localV < 1.0f);
         assert(anchor.ownerU < SurfaceReliefField::resolution);
         assert(anchor.ownerV < SurfaceReliefField::resolution);
-        assert(anchor.bladeHeight > 0.018f && anchor.bladeHeight <= 0.110f);
+        assert(anchor.widthScale >= 1.99f && anchor.widthScale <= 2.91f);
+        assert(anchor.bladeHeight > 0.012f && anchor.bladeHeight <= 0.075f);
+        if (anchor.bladeCount >= 2) ++multiPieceAnchors;
+        if (anchor.vegetation == VegetationProfile::TallBlade) ++tallAnchors;
         ownerCells.insert(static_cast<int>(anchor.ownerU) +
                           static_cast<int>(anchor.ownerV) * SurfaceReliefField::resolution);
 
@@ -115,11 +120,13 @@ void runSurfaceReliefTests() {
     assert(nearCellEdge >= 10);        // Proves placement is not cell-center jitter anymore.
     assert(nearestMin > 0.025f);       // Controlled/blue-noise-like: no random garbage clumping.
     assert(nearestMax < 0.145f);       // No bald holes inside a mature block.
+    assert(multiPieceAnchors >= 70);   // Reference mass: most anchors form compact multi-voxel tufts.
+    assert(tallAnchors <= 12);         // Tall isolated sticks are accents, never the dominant read.
 
     for (int v = 0; v < SurfaceReliefField::resolution; ++v) {
         for (int u = 0; u < SurfaceReliefField::resolution; ++u) {
             const auto& cell = fieldA.cell(u, v);
-            assert(cell.heightOffset >= 0.0f && cell.heightOffset <= 0.026f);
+            assert(cell.heightOffset >= 0.0f && cell.heightOffset <= 0.033f);
         }
     }
 
@@ -150,7 +157,7 @@ void runSurfaceReliefTests() {
     for (int v = 0; v < SurfaceReliefField::resolution; ++v) {
         for (int u = 0; u < SurfaceReliefField::resolution; ++u) {
             const auto& cell = rooted.cell(u, v);
-            assert(cell.heightOffset >= 0.0f && cell.heightOffset <= 0.067f);
+            assert(cell.heightOffset >= 0.0f && cell.heightOffset <= 0.076f);
             if (cell.relief == ReliefClass::Root) ++roots;
             if (cell.relief == ReliefClass::Cavity) ++cavities;
             if (cell.relief == ReliefClass::Turf) ++turf;
@@ -168,10 +175,15 @@ void runSurfaceReliefTests() {
     assert(cavities >= 5 && cavities <= 30);
     assert(turf >= 40);
     assert(roots > 0);
-    assert(maxDepth - minDepth > 0.030f); // Real structural depth, not a 1-2% paper offset.
-    assert(rooted.rootSegmentCount >= 14 && rooted.rootSegmentCount <= SurfaceReliefField::maxRootSegments);
+    assert(maxDepth - minDepth > 0.036f); // Real structural depth, not a 1-2% paper offset.
+    assert(rooted.rootSegmentCount >= 18 && rooted.rootSegmentCount <= SurfaceReliefField::maxRootSegments);
     assert(bareDirt.rootSegmentCount == 0);
     assert(bareRoots == 0 && bareTurf == 0);
+    for (std::size_t i = 0; i < rooted.rootSegmentCount; ++i) {
+        const auto& segment = rooted.rootSegment(i);
+        assert(segment.width >= 0.0026f && segment.width <= 0.0091f);
+        assert(segment.projection >= 0.0042f && segment.projection <= 0.0101f);
+    }
 
     assert(SurfaceRelief::microCellForVisualCell(0) == 0);
     assert(SurfaceRelief::microCellForVisualCell(1) == 0);
@@ -210,13 +222,22 @@ void runSurfaceReliefTests() {
     assert(heroMesh.quadCount < 10000u); // Explicit Hero upper bound for one fully exposed block.
 
     bool foundRootFiber = false;
+    int grassSideAboveMacroTop = 0;
     for (const auto& vertex : heroMesh.vertices) {
-        if ((vertex.material & surfaceMaterialMask) == static_cast<std::uint32_t>(SurfaceMaterial::RootFiber)) {
+        const auto material = vertex.material & surfaceMaterialMask;
+        if (material == static_cast<std::uint32_t>(SurfaceMaterial::RootFiber)) {
             foundRootFiber = true;
-            break;
+        }
+        // Top-bed risers live above y=4 for this isolated block. They must stay green GrassTop;
+        // GrassSide's shader intentionally blends to soil at low local-Y and would create brown
+        // checker seams at grazing angles if reused above the macro top.
+        if (vertex.y > 4.0005f && std::abs(vertex.ny) < 0.5f &&
+            material == static_cast<std::uint32_t>(SurfaceMaterial::GrassSide)) {
+            ++grassSideAboveMacroTop;
         }
     }
     assert(foundRootFiber);
+    assert(grassSideAboveMacroTop == 0);
 
     VoxelMesh standardMesh;
     SurfaceDetailStats standardStats;

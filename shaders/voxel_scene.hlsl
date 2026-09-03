@@ -1,4 +1,4 @@
-// RuneForge 0.6.2 grass + rooted-soil hard correction.
+// RuneForge 0.6.3 grass + rooted-soil reference-shape correction.
 //
 // The physical SurfaceRelief mesh now owns visible micro construction. This shader deliberately
 // stops drawing a second fake 16x16 material grid or aggressive pseudo-height over that geometry.
@@ -29,7 +29,7 @@ MaterialSample sampleSurface062(uint material, float3 p, float3 n) {
     if (material == 0u) {
         // Grass top: continuous multi-scale organic variation only. No floor()/cell boundary mask
         // exists here; the real 16x16 turf geometry provides the voxel construction and the R2
-        // anchor set provides the visible blades. This prevents a second shader grid from aligning
+        // anchor set provides the visible turf pieces. This prevents a second shader grid from aligning
         // with either one.
         float broad = fbm2(uv * 0.52 + float2(7.3, 11.1));
         float medium = fbm2(uv * 3.7 + float2(31.0, 19.0));

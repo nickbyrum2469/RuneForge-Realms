@@ -136,11 +136,13 @@ bool microCellVisible(const micro::MicroVoxelState* state, surface::SurfaceFace 
 }
 
 void addFlowerCap(VoxelMesh& mesh, float cx, float y, float cz, std::uint16_t id) {
-    SurfaceMaterial material = SurfaceMaterial::FlowerWhite;
-    if ((id % 3u) == 1u) material = SurfaceMaterial::FlowerYellow;
-    else if ((id % 3u) == 2u) material = SurfaceMaterial::FlowerBlue;
-    constexpr float size = 0.021f;
-    addBox(mesh, cx - size * 0.5f, y, cz - size * 0.5f, size, 0.010f, size, material);
+    // Keep meadow accents tiny and restrained like the reference: mostly white with rare warm
+    // yellow specks. Blue remains a valid authored flower material, just not part of this turf pass.
+    const SurfaceMaterial material = (id % 4u) == 0u
+        ? SurfaceMaterial::FlowerYellow
+        : SurfaceMaterial::FlowerWhite;
+    constexpr float size = 0.017f;
+    addBox(mesh, cx - size * 0.5f, y, cz - size * 0.5f, size, 0.008f, size, material);
 }
 
 void emitTopRiserX(VoxelMesh& mesh, float x, float z0, float z1,
@@ -149,7 +151,7 @@ void emitTopRiserX(VoxelMesh& mesh, float x, float z0, float z1,
     if (highY - lowY <= 0.0045f) return;
     const Vec3 normal = normalPositiveX ? Vec3{1,0,0} : Vec3{-1,0,0};
     addOrientedQuad(mesh, {x,lowY,z0}, {x,lowY,z1}, {x,highY,z1}, {x,highY,z0},
-                    normal, SurfaceMaterial::GrassSide);
+                    normal, SurfaceMaterial::GrassTop);
     if (stats) ++stats->topRiserQuads;
 }
 
@@ -159,8 +161,34 @@ void emitTopRiserZ(VoxelMesh& mesh, float z, float x0, float x1,
     if (highY - lowY <= 0.0045f) return;
     const Vec3 normal = normalPositiveZ ? Vec3{0,0,1} : Vec3{0,0,-1};
     addOrientedQuad(mesh, {x0,lowY,z}, {x1,lowY,z}, {x1,highY,z}, {x0,highY,z},
-                    normal, SurfaceMaterial::GrassSide);
+                    normal, SurfaceMaterial::GrassTop);
     if (stats) ++stats->topRiserQuads;
+}
+
+float turfProfileWidthScale(surface::VegetationProfile profile) noexcept {
+    switch (profile) {
+        case surface::VegetationProfile::TinyBlade: return 0.82f;
+        case surface::VegetationProfile::ShortBlade: return 0.95f;
+        case surface::VegetationProfile::TallBlade: return 0.72f;
+        case surface::VegetationProfile::TwoBladeTuft: return 1.05f;
+        case surface::VegetationProfile::CompactTuft: return 1.12f;
+        case surface::VegetationProfile::FlowerCapable: return 0.96f;
+        case surface::VegetationProfile::Bare: break;
+    }
+    return 1.0f;
+}
+
+float turfProfileHeightScale(surface::VegetationProfile profile) noexcept {
+    switch (profile) {
+        case surface::VegetationProfile::TinyBlade: return 0.58f;
+        case surface::VegetationProfile::ShortBlade: return 0.80f;
+        case surface::VegetationProfile::TallBlade: return 1.18f;
+        case surface::VegetationProfile::TwoBladeTuft: return 0.84f;
+        case surface::VegetationProfile::CompactTuft: return 0.72f;
+        case surface::VegetationProfile::FlowerCapable: return 0.88f;
+        case surface::VegetationProfile::Bare: break;
+    }
+    return 1.0f;
 }
 
 void addGrassTop(const ChunkMeshingSnapshot& snapshot, VoxelMesh& mesh,
@@ -234,35 +262,40 @@ void addGrassTop(const ChunkMeshingSnapshot& snapshot, VoxelMesh& mesh,
         const float surfaceY = static_cast<float>(y + 1) + owner.heightOffset;
         const float cx = static_cast<float>(localX) + anchor.localU;
         const float cz = static_cast<float>(localZ) + anchor.localV;
+        const float profileWidth = turfProfileWidthScale(anchor.vegetation);
+        const float profileHeight = turfProfileHeightScale(anchor.vegetation);
         const float width = (0.0100f + static_cast<float>(anchor.stableId & 3u) * 0.0017f) *
-                            anchor.widthScale;
+                            anchor.widthScale * profileWidth;
         const float depth = (0.0105f + static_cast<float>((anchor.stableId >> 2) & 3u) * 0.0015f) *
-                            anchor.widthScale;
+                            anchor.widthScale * profileWidth;
+        const float primaryHeight = anchor.bladeHeight * profileHeight;
 
+        // These are intentionally short blocky pegs/clumps, not long blades. Wider cross-sections
+        // let neighboring anchors visually interlock into the plush voxel turf mass in the target.
         addBox(mesh, cx - width * 0.5f, surfaceY, cz - depth * 0.5f,
-               width, anchor.bladeHeight, depth, SurfaceMaterial::GrassTop);
+               width, primaryHeight, depth, SurfaceMaterial::GrassTop);
 
         if (anchor.bladeCount >= 2) {
-            const float companion = anchor.bladeHeight * (0.56f +
-                static_cast<float>((anchor.stableId >> 5) & 3u) * 0.075f);
-            const float offset = 0.015f + static_cast<float>((anchor.stableId >> 10) & 3u) * 0.004f;
+            const float companion = primaryHeight * (0.64f +
+                static_cast<float>((anchor.stableId >> 5) & 3u) * 0.065f);
+            const float offset = 0.014f + static_cast<float>((anchor.stableId >> 10) & 3u) * 0.0035f;
             const float signU = ((anchor.stableId >> 8) & 1u) ? 1.0f : -1.0f;
             const float signV = ((anchor.stableId >> 9) & 1u) ? 1.0f : -1.0f;
-            addBox(mesh, cx + signU * offset - width * 0.34f, surfaceY,
-                   cz + signV * offset - depth * 0.34f,
-                   width * 0.68f, companion, depth * 0.68f, SurfaceMaterial::GrassTop);
+            addBox(mesh, cx + signU * offset - width * 0.39f, surfaceY,
+                   cz + signV * offset - depth * 0.39f,
+                   width * 0.78f, companion, depth * 0.78f, SurfaceMaterial::GrassTop);
         }
         if (anchor.bladeCount >= 3) {
-            const float thirdHeight = anchor.bladeHeight * (0.45f +
-                static_cast<float>((anchor.stableId >> 12) & 3u) * 0.065f);
+            const float thirdHeight = primaryHeight * (0.52f +
+                static_cast<float>((anchor.stableId >> 12) & 3u) * 0.055f);
             const float sign = ((anchor.stableId >> 14) & 1u) ? 1.0f : -1.0f;
-            addBox(mesh, cx - sign * 0.011f - width * 0.27f, surfaceY,
-                   cz + sign * 0.017f - depth * 0.27f,
-                   width * 0.54f, thirdHeight, depth * 0.54f, SurfaceMaterial::GrassTop);
+            addBox(mesh, cx - sign * 0.010f - width * 0.34f, surfaceY,
+                   cz + sign * 0.014f - depth * 0.34f,
+                   width * 0.68f, thirdHeight, depth * 0.68f, SurfaceMaterial::GrassTop);
         }
         if (anchor.vegetation == surface::VegetationProfile::FlowerCapable &&
             (anchor.stableId % 7u) == 0u) {
-            addFlowerCap(mesh, cx, surfaceY + anchor.bladeHeight, cz, anchor.stableId);
+            addFlowerCap(mesh, cx, surfaceY + primaryHeight, cz, anchor.stableId);
         }
         ++renderedAnchors;
         if (stats) ++stats->grassClusters;
