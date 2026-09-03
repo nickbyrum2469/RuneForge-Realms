@@ -1,0 +1,28 @@
+name: Dev Source Snapshot
+
+on:
+  push:
+    branches:
+      - fix/reference-turf-mass-0.6.3
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Upload focused source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: runeforge-focused-source
+          retention-days: 1
+          path: |
+            src/world/surface/SurfaceRelief.cpp
+            src/world/surface/SurfaceRelief.h
+            src/world/meshing/MicroDetailBuilder.cpp
+            src/world/meshing/MicroDetailBuilder.h
+            tests/TestSurfaceRelief.cpp
+            shaders/voxel_scene.hlsl
