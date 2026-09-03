@@ -71,15 +71,17 @@ struct SurfaceReliefBudget {
 
 class SurfaceRelief {
 public:
-    // 16 visual cells per block face provides the micro-density class requested by the art target
-    // while mapping exactly 2x2 visual cells onto each existing 8x8 physical micro voxel.
+    // 16 visual cells per block face is the initial reference-density target. It also maps exactly
+    // 2x2 visual cells onto each existing 8x8 physical micro voxel, preserving a stable future
+    // damage/promotion address without making each visual cell gameplay state.
     static constexpr int visualResolution = SurfaceReliefField::resolution;
     static constexpr int visualCellsPerMicroVoxel = 2;
 
     [[nodiscard]] static SurfaceReliefField grassTop(std::uint32_t worldSeed, BlockCoord block,
                                                       float worldAgeSeconds) noexcept;
-    [[nodiscard]] static SurfaceReliefField rootedSide(std::uint32_t worldSeed, BlockCoord block,
-                                                        SurfaceFace face) noexcept;
+    [[nodiscard]] static SurfaceReliefField soilSide(std::uint32_t worldSeed, BlockCoord block,
+                                                      SurfaceFace face,
+                                                      bool includeTurfLip) noexcept;
 
     [[nodiscard]] static constexpr int microCellForVisualCell(int visualCell) noexcept {
         return visualCell / visualCellsPerMicroVoxel;
