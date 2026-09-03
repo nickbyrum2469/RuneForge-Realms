@@ -17,9 +17,12 @@ struct SurfaceDetailStats {
     std::uint32_t dirtBlocks{};
     std::uint32_t promotedGrassBlocks{};
     std::uint32_t topReliefCells{};
+    std::uint32_t topRiserQuads{};
     std::uint32_t sideReliefCells{};
+    std::uint32_t sideWallQuads{};
     std::uint32_t grassClusters{};
     std::uint32_t rootCells{};
+    std::uint32_t rootSegments{};
     std::uint32_t cavityCells{};
 };
 
