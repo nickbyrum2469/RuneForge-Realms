@@ -13,7 +13,7 @@ void PlayerController::spawn(Vec3 feetPosition, float yaw, float pitch) noexcept
     yaw_ = yaw;
     pitch_ = std::clamp(pitch, -1.45f, 1.45f);
     grounded_ = false;
-    jumpRequested_ = false;
+    clearInputState();
 }
 
 void PlayerController::setMouseSensitivity(float scale) noexcept {
@@ -29,6 +29,16 @@ void PlayerController::setControl(MoveControl control, bool pressed) noexcept {
         case MoveControl::Sprint: sprint_ = pressed; break;
         case MoveControl::Crouch: crouch_ = pressed; break;
     }
+}
+
+void PlayerController::clearInputState() noexcept {
+    forward_ = false;
+    backward_ = false;
+    left_ = false;
+    right_ = false;
+    sprint_ = false;
+    crouch_ = false;
+    jumpRequested_ = false;
 }
 
 void PlayerController::addLook(float deltaX, float deltaY) noexcept {
