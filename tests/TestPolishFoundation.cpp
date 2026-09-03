@@ -3,14 +3,18 @@
 #include "app/UiState.h"
 #include "core/settings/GameSettings.h"
 #include "game/Math.h"
+#include "game/character/PlayerBodyRig.h"
 #include "game/interaction/MiningSwing.h"
 #include "game/mining/MiningCadence.h"
 #include "game/mining/MiningSystem.h"
 #include "game/particles/ParticleSystem.h"
+#include "render/scene/CharacterVoxelOrientation.h"
+#include "render/scene/VoxelCharacterBuilder.h"
 #include "world/Block.h"
 #include "world/FrontierWorld.h"
 #include "world/blocks/BlockRegistry.h"
 #include "world/generation/TerrainGenerator.h"
+#include "world/growth/GrassGrowth.h"
 
 #include <cassert>
 #include <cmath>
@@ -19,8 +23,6 @@
 void runPolishFoundationTests() {
     using namespace rf;
 
-    // Modal state is the single authority for gameplay input, renderer pause and mouse ownership.
-    // This prevents an invisible menu from consuming input while gameplay still appears active.
     app::UiState uiState;
     assert(uiState.screen() == app::UiScreen::Hub);
     assert(!uiState.gameplayInputAllowed());
@@ -54,7 +56,7 @@ void runPolishFoundationTests() {
     assert(uiState.screen() == app::UiScreen::Inventory);
     assert(uiState.rendererShouldBePaused());
     assert(uiState.nativeOverlayVisible());
-    assert(!uiState.openPause()); // A visible modal cannot silently stack another modal behind itself.
+    assert(!uiState.openPause());
     assert(uiState.closeInventory());
     assert(uiState.screen() == app::UiScreen::Gameplay);
 
@@ -65,9 +67,6 @@ void runPolishFoundationTests() {
     assert(uiState.screen() == app::UiScreen::Hub);
     assert(!uiState.nativeOverlayVisible());
 
-    // CPU interaction/body math must use the same handed camera basis as the HLSL view transform:
-    // up = normalize(cross(forward, right)). This guards pitch-angle drift between the visible fist
-    // and the physical sweep that decides mining contact.
     const game::Vec3 basisForward = game::forwardFromAngles(0.65f, 0.42f);
     const game::Vec3 basisRight = game::normalized({basisForward.z, 0.0f, -basisForward.x});
     const game::Vec3 basisUp = game::normalized(game::cross(basisForward, basisRight));
@@ -76,12 +75,46 @@ void runPolishFoundationTests() {
     assert(std::abs(game::dot(basisForward, basisUp)) < 0.0001f);
     assert(std::abs(game::dot(basisRight, basisUp)) < 0.0001f);
 
+    // The hero may rotate in world space, but every tiny cube must rotate with the actor root rather
+    // than keeping terrain/world-axis normals. This specifically protects the 45-degree "diamond body"
+    // regression caught in the user's 0.5.3 hardware screenshots.
+    const game::Vec3 diagonalForward = game::normalized(game::Vec3{1.0f, 0.0f, 1.0f});
+    const auto diagonalPose = game::character::PlayerBodyRig::solve({0.0f, 0.0f, 0.0f}, diagonalForward, false);
+    game::character::CharacterAppearance diagonalAppearance{};
+    auto diagonalMesh = render::scene::VoxelCharacterBuilder::build(diagonalPose, diagonalAppearance);
+    render::scene::orientCharacterVoxels(diagonalMesh, diagonalPose);
+    bool sawActorForwardNormal = false;
+    bool sawActorRightNormal = false;
+    for (const auto& vertex : diagonalMesh.vertices) {
+        const game::Vec3 normal{vertex.nx, vertex.ny, vertex.nz};
+        sawActorForwardNormal = sawActorForwardNormal || game::dot(normal, diagonalPose.forward) > 0.999f;
+        sawActorRightNormal = sawActorRightNormal || game::dot(normal, diagonalPose.right) > 0.999f;
+    }
+    assert(sawActorForwardNormal);
+    assert(sawActorRightNormal);
+
+    // Grass is material silhouette, not a random sparse event. All 8x8 cells exist from world age zero
+    // and remain present after aging; age may only make tiny maturity/height changes.
+    int grassCells = 0;
+    for (int z = 0; z < world::growth::GrassGrowth::nodeResolution; ++z) {
+        for (int x = 0; x < world::growth::GrassGrowth::nodeResolution; ++x) {
+            const auto initial = world::growth::GrassGrowth::sample(1337u, {4, 10, -3}, x, z, 0.0f);
+            const auto aged = world::growth::GrassGrowth::sample(1337u, {4, 10, -3}, x, z, 10000.0f);
+            assert(initial.present);
+            assert(aged.present);
+            assert(initial.height >= 0.060f && initial.height <= 0.0951f);
+            assert(aged.height >= 0.060f && aged.height <= 0.0951f);
+            ++grassCells;
+        }
+    }
+    assert(grassCells == world::growth::GrassGrowth::nodeResolution * world::growth::GrassGrowth::nodeResolution);
+
     game::mining::MiningCadence cadence;
     cadence.press();
     assert(cadence.update(0.0f, 0.50f));
     cadence.release();
     cadence.press();
-    assert(!cadence.update(0.10f, 0.50f)); // click spam cannot bypass the existing cooldown.
+    assert(!cadence.update(0.10f, 0.50f));
     cadence.release();
     assert(!cadence.update(0.25f, 0.50f));
     cadence.press();
@@ -124,8 +157,6 @@ void runPolishFoundationTests() {
     assert(sawWater);
     assert(sawDryLand);
 
-    // Breaking support beneath a lake activates only the local fluid neighborhood. The water then
-    // falls into the opening on scheduled simulation ticks instead of scanning every lake cell/frame.
     world::FrontierWorld flowWorld;
     flowWorld.generate(1337u);
     std::optional<world::BlockCoord> supportedWater;
@@ -145,8 +176,6 @@ void runPolishFoundationTests() {
     for (int i = 0; i < 6; ++i) (void)flowWorld.advanceSimulation(0.12f);
     assert(flowWorld.getBlock(opening.x, opening.y, opening.z) == world::BlockId::Water);
 
-    // A camera ray may nominate a target, but only the animated fixed-length fist sweep confirms
-    // damage. This fixture uses a physically reachable front face from the actual player root.
     world::FrontierWorld swingWorld;
     swingWorld.generate(4242u);
     for (int x = -1; x <= 1; ++x) {
@@ -175,14 +204,17 @@ void runPolishFoundationTests() {
     const game::Vec3 up{0,1,0};
     assert(swing.begin(intended, feet, false, eye, forward, right, up, 0.50f));
     int contacts = 0;
+    int firstContactFrame = -1;
     for (int frame = 0; frame < 30; ++frame) {
         if (const auto contact = swing.update(0.025f, swingWorld, feet, false, eye, forward, right, up)) {
             ++contacts;
+            if (firstContactFrame < 0) firstContactFrame = frame;
             assert(contact->hit.block == intended.block);
             (void)swingWorld.setBlock(intended.block.x, intended.block.y, intended.block.z, world::BlockId::Air, false);
         }
     }
     assert(contacts == 1);
+    assert(firstContactFrame >= 4 && firstContactFrame <= 7); // compact ~30% impact, not the old late punch.
     assert(swingWorld.getBlock(0,10,2) == world::BlockId::Stone);
 
     world::FrontierWorld particleWorld;

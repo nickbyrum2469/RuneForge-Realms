@@ -10,6 +10,7 @@
 #include "world/Block.h"
 #include "world/FrontierWorld.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
@@ -36,6 +37,20 @@ std::size_t materialVertexCount(const rf::world::VoxelMesh& mesh, rf::world::Sur
         if ((vertex.material & rf::world::surfaceMaterialMask) == wanted) ++count;
     }
     return count;
+}
+
+float maxHairLateralInYRange(const rf::world::VoxelMesh& mesh,
+                             rf::game::Vec3 headCenter,
+                             float minY,
+                             float maxY) {
+    const std::uint32_t hair = static_cast<std::uint32_t>(rf::world::SurfaceMaterial::CharacterHair);
+    float extent = 0.0f;
+    for (const auto& vertex : mesh.vertices) {
+        if ((vertex.material & rf::world::surfaceMaterialMask) != hair) continue;
+        if (vertex.y < minY || vertex.y > maxY) continue;
+        extent = std::max(extent, std::abs(vertex.x - headCenter.x));
+    }
+    return extent;
 }
 
 void assertFixedArm(const rf::game::character::ArmPose& arm) {
@@ -149,7 +164,12 @@ void runCharacterRigTests() {
     assertFixedLeg(breathing.leftLeg);
     assertHeroTaper(breathing);
     assertCompactHeadStack(breathing);
-    assert(breathing.pelvis.y > body.pelvis.y + 0.003f);
+    // Idle breathing is torso-local: the pelvis stays planted while the ribcage/head stack expands
+    // slightly upward and forward. This prevents the old whole-body hover while preserving anatomy.
+    assert(std::abs(breathing.pelvis.y - body.pelvis.y) < 0.0001f);
+    assert(breathing.chest.y > body.chest.y + 0.0045f);
+    assert(game::dot(breathing.chest - body.chest, body.forward) > 0.0035f);
+    assert(breathing.head.y > body.head.y + 0.0045f);
 
     const game::Vec3 impossibleHand{6.0f, 12.0f, 7.0f};
     body = game::character::PlayerBodyRig::solve(feet, forward, false, &impossibleHand);
@@ -179,6 +199,18 @@ void runCharacterRigTests() {
     assert(!hasMaterial(baseMesh, world::SurfaceMaterial::CharacterBlueCloth));
     assert(!hasMaterial(baseMesh, world::SurfaceMaterial::CharacterMetal));
     assert(baseMesh.quadCount > 2200);
+
+    // Lower side hair must taper inward under the temples while the crown stays visibly broader.
+    // This guards the six-view reference silhouette against regressing into a rectangular helmet wall.
+    const float lowerHairExtent = maxHairLateralInYRange(baseMesh, fullPose.head,
+                                                          fullPose.head.y - 0.155f,
+                                                          fullPose.head.y - 0.060f);
+    const float crownHairExtent = maxHairLateralInYRange(baseMesh, fullPose.head,
+                                                          fullPose.head.y + 0.135f,
+                                                          fullPose.head.y + 0.255f);
+    assert(lowerHairExtent > 0.210f);
+    assert(lowerHairExtent < 0.226f);
+    assert(crownHairExtent > lowerHairExtent + 0.010f);
 
     auto gearedAppearance = baseAppearance;
     gearedAppearance.chest = game::character::GearVisual::Cloth;

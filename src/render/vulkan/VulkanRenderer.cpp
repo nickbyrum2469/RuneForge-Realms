@@ -428,13 +428,12 @@ void VulkanRenderer::resize(unsigned width, unsigned height) {
 void VulkanRenderer::setPaused(bool paused) noexcept {
     paused_ = paused;
     miningCadence_.release();
-    if (paused) miningSwing_.reset();
-    player_.setControl(game::MoveControl::Forward, false);
-    player_.setControl(game::MoveControl::Backward, false);
-    player_.setControl(game::MoveControl::Left, false);
-    player_.setControl(game::MoveControl::Right, false);
-    player_.setControl(game::MoveControl::Sprint, false);
-    player_.setControl(game::MoveControl::Crouch, false);
+    if (paused) {
+        miningSwing_.reset();
+        // Modal transitions must discard every latched gameplay input, including a jump request that
+        // was queued earlier in the same Win32 message pump before Escape/Tab changed UI state.
+        player_.clearInputState();
+    }
     updateWindowTitle();
 }
 

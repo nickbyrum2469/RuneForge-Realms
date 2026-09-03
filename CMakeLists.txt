@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.26)
-project(RuneForgeRealms VERSION 0.5.3 LANGUAGES C CXX)
+project(RuneForgeRealms VERSION 0.5.4 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -231,6 +231,7 @@ if(RF_BUILD_TESTS)
     add_executable(runeforge_core_tests
         tests/CoreTests.cpp
         tests/TestCulling.cpp
+        tests/TestMeshScheduling.cpp
         tests/TestJobs.cpp
         tests/TestPersistence.cpp
         tests/TestRegistries.cpp

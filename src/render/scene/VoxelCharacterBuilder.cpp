@@ -360,11 +360,16 @@ void addHead(world::VoxelMesh& mesh, const PlayerBodyPose& pose) {
                      hairPixel, world::SurfaceMaterial::CharacterHair);
         }
     }
+    // The reference's side silhouette has layered locks that taper toward the jaw instead of a
+    // rectangular helmet wall. Keep the crown broad, but pull the lower side rows inward and remove
+    // their forward-most column so cheek/jaw skin remains visible in profile and 3/4 views.
     for (int side = -1; side <= 1; side += 2) {
         const float s = static_cast<float>(side);
         for (int y = -2; y <= 3; ++y) {
-            for (int z = -2; z <= 1; ++z) {
-                addPixel(mesh, localPoint(center, pose, s * 0.211f,
+            const float sideInset = y <= -1 ? 0.195f : (y == 0 ? 0.203f : 0.211f);
+            const int maxForwardZ = y <= -1 ? 0 : 1;
+            for (int z = -2; z <= maxForwardZ; ++z) {
+                addPixel(mesh, localPoint(center, pose, s * sideInset,
                                           static_cast<float>(y) * 0.054f,
                                           static_cast<float>(z) * 0.054f - 0.015f),
                          0.056f, world::SurfaceMaterial::CharacterHair);

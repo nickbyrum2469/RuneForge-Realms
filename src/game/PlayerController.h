@@ -16,6 +16,7 @@ public:
     void spawn(Vec3 feetPosition, float yaw = 0.0f, float pitch = -0.08f) noexcept;
     void setControl(MoveControl control, bool pressed) noexcept;
     void requestJump() noexcept { jumpRequested_ = true; }
+    void clearInputState() noexcept;
     void addLook(float deltaX, float deltaY) noexcept;
     void update(float deltaSeconds, const world::FrontierWorld& world) noexcept;
     void setMouseSensitivity(float scale) noexcept;
@@ -35,6 +36,8 @@ public:
     [[nodiscard]] float horizontalSpeed() const noexcept {
         return std::sqrt(velocity_.x * velocity_.x + velocity_.z * velocity_.z);
     }
+    [[nodiscard]] float actualHorizontalSpeed() const noexcept { return actualHorizontalSpeed_; }
+    [[nodiscard]] float horizontalTravelDistance() const noexcept { return horizontalTravelDistance_; }
     [[nodiscard]] float bodyWidth() const noexcept { return crouch_ ? 0.58f : 0.62f; }
     [[nodiscard]] float bodyHeight() const noexcept { return crouch_ ? 1.25f : 1.80f; }
     [[nodiscard]] float eyeHeight() const noexcept { return crouch_ ? 1.10f : 1.62f; }
@@ -48,6 +51,8 @@ private:
     float yaw_{};
     float pitch_{-0.08f};
     float mouseSensitivity_{0.00215f};
+    float actualHorizontalSpeed_{};
+    float horizontalTravelDistance_{};
     CameraMode cameraMode_{CameraMode::FirstPerson};
     bool forward_{};
     bool backward_{};

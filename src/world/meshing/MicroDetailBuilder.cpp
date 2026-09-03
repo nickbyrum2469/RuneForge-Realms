@@ -68,56 +68,49 @@ void addFlower(VoxelMesh& mesh, float cx, float y, float cz, growth::FlowerType 
     addBox(mesh, cx - petal * 0.5f, y + 0.002f, cz + petal * 0.30f, petal, 0.014f, petal, material);
 }
 
-bool keepGrassNode(SurfaceDetailTier tier, std::uint32_t hash) noexcept {
-    if (tier == SurfaceDetailTier::Distant) return false;
-    if (tier == SurfaceDetailTier::Hero) return true;
-    // Keep three quarters of deterministic grass nodes in the near tier. 0.5.2 threw half away,
-    // which made normal traversal look bald compared with the supplied dense turf reference.
-    return (hash & 3u) != 0u;
-}
-
 void addGrassNodes(VoxelMesh& mesh, const ChunkMeshingSnapshot& snapshot,
                    int localX, int y, int localZ,
                    const micro::MicroVoxelState* state, SurfaceDetailTier tier) {
     if (tier == SurfaceDetailTier::Distant) return;
     const BlockCoord worldBlock{snapshot.worldOriginX + localX, y, snapshot.worldOriginZ + localZ};
     const std::uint32_t baseHash = detailHash(worldBlock.x, worldBlock.y, worldBlock.z, snapshot.worldSeed);
+    const float cell = 1.0f / static_cast<float>(growth::GrassGrowth::nodeResolution);
+
     for (int nz = 0; nz < growth::GrassGrowth::nodeResolution; ++nz) {
         for (int nx = 0; nx < growth::GrassGrowth::nodeResolution; ++nx) {
             if (state && !state->occupied(nx, micro::resolution - 1, nz)) continue;
             const std::uint32_t nodeHash = baseHash ^
                 (static_cast<std::uint32_t>(nx + nz * growth::GrassGrowth::nodeResolution + 1) * 0x9e3779b9u);
-            if (!keepGrassNode(tier, nodeHash)) continue;
-
             const auto node = growth::GrassGrowth::sample(snapshot.worldSeed, worldBlock, nx, nz,
                                                           snapshot.worldAgeSeconds);
-            if (!node.present || node.stage == 0) continue;
+            if (!node.present) continue;
 
-            const float cell = 1.0f / static_cast<float>(growth::GrassGrowth::nodeResolution);
-            const float jitterX = (static_cast<float>((nodeHash >> 7) & 15u) / 15.0f - 0.5f) * cell * 0.22f;
-            const float jitterZ = (static_cast<float>((nodeHash >> 13) & 15u) / 15.0f - 0.5f) * cell * 0.22f;
-            const float cx = static_cast<float>(localX) + (static_cast<float>(nx) + 0.5f) * cell + jitterX;
-            const float cz = static_cast<float>(localZ) + (static_cast<float>(nz) + 0.5f) * cell + jitterZ;
+            // Each 8x8 cell owns a blade. Keep centers almost perfectly gridded: the reference reads
+            // as a clean continuous turf carpet, not random weeds. Tiny deterministic offsets prevent
+            // a sterile checkerboard without opening visible bald patches.
+            const float microJitterX = (static_cast<float>((nodeHash >> 7) & 7u) / 7.0f - 0.5f) * cell * 0.07f;
+            const float microJitterZ = (static_cast<float>((nodeHash >> 12) & 7u) / 7.0f - 0.5f) * cell * 0.07f;
+            const float cx = static_cast<float>(localX) + (static_cast<float>(nx) + 0.5f) * cell + microJitterX;
+            const float cz = static_cast<float>(localZ) + (static_cast<float>(nz) + 0.5f) * cell + microJitterZ;
             const float baseY = static_cast<float>(y + 1);
-            const float w = node.width;
-            const float h = node.height;
+            const float bladeWidth = 0.020f + static_cast<float>((nodeHash >> 20) & 3u) * 0.0018f;
+            const float bladeDepth = 0.021f + static_cast<float>((nodeHash >> 23) & 3u) * 0.0015f;
 
-            // Dense turf is authored as clusters of tiny cuboid blades. Every visible node already
-            // has at least two blades, so terrain is lush on first load instead of slowly revealing
-            // isolated needles after remeshes. Hero detail adds more asymmetry without changing truth.
-            addBox(mesh, cx - w * 0.50f, baseY, cz - w * 0.48f,
-                   w * 0.72f, h, w * 0.72f, SurfaceMaterial::GrassTop);
-            addBox(mesh, cx + w * 0.06f, baseY, cz - w * 0.20f,
-                   w * 0.60f, h * 0.80f, w * 0.60f, SurfaceMaterial::GrassTop);
-            if (node.stage >= 3) {
-                addBox(mesh, cx - w * 0.62f, baseY, cz + w * 0.06f,
-                       w * 0.50f, h * 0.66f, w * 0.50f, SurfaceMaterial::GrassTop);
+            // One inexpensive cuboid per cell gives full coverage with fewer boxes than the previous
+            // sparse 2-4-box tuft system. Hero detail gets a short offset companion blade for depth.
+            addBox(mesh, cx - bladeWidth * 0.5f, baseY, cz - bladeDepth * 0.5f,
+                   bladeWidth, node.height, bladeDepth, SurfaceMaterial::GrassTop);
+
+            if (tier == SurfaceDetailTier::Hero) {
+                const float companionH = node.height * (0.68f + static_cast<float>((nodeHash >> 17) & 3u) * 0.055f);
+                const float offset = cell * 0.19f;
+                addBox(mesh, cx + offset - bladeWidth * 0.38f, baseY,
+                       cz - offset - bladeDepth * 0.38f,
+                       bladeWidth * 0.76f, companionH, bladeDepth * 0.76f,
+                       SurfaceMaterial::GrassTop);
             }
-            if (node.stage >= 4 && tier == SurfaceDetailTier::Hero) {
-                addBox(mesh, cx + w * 0.18f, baseY, cz + w * 0.14f,
-                       w * 0.42f, h * 0.54f, w * 0.42f, SurfaceMaterial::GrassTop);
-            }
-            addFlower(mesh, cx, baseY + h, cz, node.flower);
+
+            addFlower(mesh, cx, baseY + node.height, cz, node.flower);
         }
     }
 }
@@ -156,9 +149,6 @@ void MicroDetailBuilder::append(const ChunkMeshingSnapshot& snapshot, VoxelMesh&
                     } else if (block == BlockId::Dirt) {
                         addSoilClods(mesh, x, y, z, h, tier);
                     } else if (block == BlockId::Stone) {
-                        // Broad overlapping plates are the macro relief from the supplied stone block.
-                        // The shader supplies chipped micro-fractures; these boxes make the silhouette
-                        // physically stepped instead of relying only on a flat normal perturbation.
                         const int plateCount = tier == SurfaceDetailTier::Hero ? 7 : 4;
                         for (int plate = 0; plate < plateCount; ++plate) {
                             const std::uint32_t ph = h ^ (0x9e3779b9u * static_cast<std::uint32_t>(plate + 1));

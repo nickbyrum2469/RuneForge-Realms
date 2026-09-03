@@ -10,10 +10,7 @@ namespace {
 
 using game::Vec3;
 
-float smooth01(float value) noexcept {
-    value = std::clamp(value, 0.0f, 1.0f);
-    return value * value * (3.0f - 2.0f * value);
-}
+constexpr float pi = 3.14159265358979323846f;
 
 void canonicalizeBasis(Vec3& forward, Vec3& right, Vec3& up) noexcept {
     forward = game::normalized(forward);
@@ -29,7 +26,13 @@ void canonicalizeBasis(Vec3& forward, Vec3& right, Vec3& up) noexcept {
     if (game::lengthSquared(up) <= 0.000001f) up = {0.0f, 1.0f, 0.0f};
 }
 
-std::array<float, 3> xyz(Vec3 value) noexcept { return {value.x, value.y, value.z}; }
+Vec3 rotateAroundAxis(Vec3 value, Vec3 axis, float radians) noexcept {
+    axis = game::normalized(axis);
+    if (game::lengthSquared(axis) <= 0.000001f || std::abs(radians) <= 0.000001f) return value;
+    const float c = std::cos(radians);
+    const float s = std::sin(radians);
+    return value * c + game::cross(axis, value) * s + axis * (game::dot(axis, value) * (1.0f - c));
+}
 
 void addQuad(world::VoxelMesh& mesh,
              Vec3 p0,
@@ -133,8 +136,6 @@ void addVoxelHand(world::VoxelMesh& mesh,
                   Vec3 forward) {
     const FaceMaterials skin = skinFaces();
 
-    // Palm is compact and intentionally sits mostly below the center of the viewport. The wrist
-    // chain continues down/out of frame so the hand never materializes from nowhere when a swing begins.
     addOrientedBox(mesh, hand, right, up, forward, 0.135f, 0.115f, 0.120f, skin);
     const Vec3 wrist = hand + right * (sideSign * 0.032f) - up * 0.082f - forward * 0.045f;
     const Vec3 offscreen = wrist + right * (sideSign * 0.075f) - up * 0.180f - forward * 0.085f;
@@ -144,7 +145,6 @@ void addVoxelHand(world::VoxelMesh& mesh,
         addOrientedBox(mesh, p, right, up, forward, 0.090f, 0.090f, 0.095f, skin);
     }
 
-    // Four small finger voxels preserve the reference character's readable block-built hand.
     for (int finger = -2; finger <= 1; ++finger) {
         addOrientedBox(mesh,
                        hand + forward * 0.055f + right * (static_cast<float>(finger) * 0.030f + 0.015f),
@@ -154,38 +154,55 @@ void addVoxelHand(world::VoxelMesh& mesh,
                    right, up, forward, 0.045f, 0.052f, 0.060f, skin);
 }
 
-Vec3 animatedRightHand(const FirstPersonViewModelState& state,
-                       Vec3 eye,
-                       Vec3 forward,
-                       Vec3 right,
-                       Vec3 up,
-                       Vec3 rest) noexcept {
-    if (!state.swingActive) return rest;
+struct AnimatedHandPose {
+    Vec3 position{};
+    Vec3 right{};
+    Vec3 up{};
+    Vec3 forward{};
+};
 
+AnimatedHandPose animatedRightHand(const FirstPersonViewModelState& state,
+                                   Vec3 eye,
+                                   Vec3 forward,
+                                   Vec3 right,
+                                   Vec3 up,
+                                   Vec3 rest) noexcept {
+    AnimatedHandPose pose{rest, right, up, forward};
+    if (!state.swingActive) return pose;
+
+    // RuneForge now follows the compact first-person swing language that makes Minecraft so readable:
+    // a fast early inward/downward arc driven by sin(sqrt(progress)*pi), a shorter forward pulse, and
+    // a clean return to the exact persistent rest pose. We keep RuneForge's distance-responsive reach,
+    // but do not make the hand wind up behind/below the camera or pop in from nowhere.
     const float t = std::clamp(state.swingTime, 0.0f, 1.0f);
-    const float targetRatio = std::clamp(state.targetDistance / 2.45f, 0.0f, 1.0f);
-    const float strikeDepth = 0.46f + targetRatio * 0.44f;
-    const Vec3 windup = rest + right * 0.105f - up * 0.020f - forward * 0.070f;
-    // At impact the visible knuckles sit exactly on the center camera ray. Distance changes only
-    // how far forward the hand travels; it never introduces a lower/side pseudo-impact.
-    const Vec3 strike = eye + forward * strikeDepth;
-    const Vec3 follow = eye + forward * (strikeDepth + 0.045f) - right * 0.105f - up * 0.085f;
+    const float root = std::sqrt(t);
+    const float arc = std::sin(root * pi);
+    const float forwardPulse = std::sin(t * pi);
+    const float verticalWave = std::sin(root * pi * 2.0f);
+    const float centerWeight = std::clamp(arc * arc * 0.82f, 0.0f, 0.82f);
 
-    if (t < 0.18f) {
-        const float u = smooth01(t / 0.18f);
-        return rest * (1.0f - u) + windup * u;
-    }
-    if (t < 0.56f) {
-        const float u = smooth01((t - 0.18f) / 0.38f);
-        const float arc = std::sin(u * 3.14159265f);
-        return windup * (1.0f - u) + strike * u + up * (arc * 0.055f) - right * (arc * 0.040f);
-    }
-    if (t < 0.74f) {
-        const float u = smooth01((t - 0.56f) / 0.18f);
-        return strike * (1.0f - u) + follow * u;
-    }
-    const float u = smooth01((t - 0.74f) / 0.26f);
-    return follow * (1.0f - u) + rest * u;
+    const float targetRatio = std::clamp(state.targetDistance / 2.45f, 0.0f, 1.0f);
+    const float strikeDepth = 0.50f + targetRatio * 0.36f;
+    const Vec3 centerStrike = eye + forward * strikeDepth;
+
+    pose.position = rest * (1.0f - centerWeight) + centerStrike * centerWeight;
+    pose.position = pose.position - right * (arc * 0.070f)
+                                  + up * (verticalWave * 0.032f)
+                                  + forward * (forwardPulse * (0.030f + targetRatio * 0.035f));
+
+    // Rotate the whole hand/item as one camera-space viewmodel. This is the part that gives the swing
+    // the familiar quick tool-swipe feel instead of looking like a fist translating on rails.
+    const float pitch = -arc * 1.05f;
+    const float yaw = -arc * 0.22f;
+    pose.forward = rotateAroundAxis(forward, right, pitch);
+    pose.up = rotateAroundAxis(up, right, pitch);
+    pose.forward = rotateAroundAxis(pose.forward, up, yaw);
+    pose.right = rotateAroundAxis(right, up, yaw);
+    pose.up = game::normalized(game::cross(pose.forward, pose.right));
+    pose.right = game::normalized(pose.right);
+    pose.forward = game::normalized(pose.forward);
+    if (game::lengthSquared(pose.up) <= 0.000001f) pose.up = up;
+    return pose;
 }
 
 } // namespace
@@ -198,29 +215,26 @@ world::VoxelMesh FirstPersonBodyBuilder::build(const FirstPersonViewModelState& 
     canonicalizeBasis(forward, right, up);
 
     const float walk = std::clamp(input.walkAmount, 0.0f, 1.0f);
-    const float sideBob = std::sin(input.walkPhase) * 0.012f * walk;
-    const float verticalBob = std::abs(std::cos(input.walkPhase)) * 0.014f * walk;
+    const float sideBob = std::sin(input.walkPhase) * 0.010f * walk;
+    const float verticalBob = std::abs(std::cos(input.walkPhase)) * 0.010f * walk;
 
     const Vec3 rightRest = input.eye + forward * 0.405f + right * (0.255f + sideBob) -
                            up * (0.255f + verticalBob);
     const Vec3 leftRest = input.eye + forward * 0.395f - right * (0.255f + sideBob) -
                           up * (0.258f + verticalBob);
 
-    const Vec3 rightHand = animatedRightHand(input, input.eye, forward, right, up, rightRest);
+    const AnimatedHandPose rightHand = animatedRightHand(input, input.eye, forward, right, up, rightRest);
 
     if (input.equippedBlock.has_value()) {
-        // Equipped view: only the dominant hand is shown. The held item is camera-space too, so its
-        // voxel faces turn with the player's view instead of visually counter-rotating against it.
-        addVoxelHand(mesh, rightHand, 1.0f, right, up, forward);
-        const Vec3 itemCenter = rightHand + forward * 0.115f + up * 0.014f - right * 0.004f;
-        addOrientedBox(mesh, itemCenter, right, up, forward, 0.175f, 0.175f, 0.175f,
-                       heldBlockFaces(*input.equippedBlock));
+        addVoxelHand(mesh, rightHand.position, 1.0f, rightHand.right, rightHand.up, rightHand.forward);
+        const Vec3 itemCenter = rightHand.position + rightHand.forward * 0.115f +
+                                rightHand.up * 0.014f - rightHand.right * 0.004f;
+        addOrientedBox(mesh, itemCenter, rightHand.right, rightHand.up, rightHand.forward,
+                       0.175f, 0.175f, 0.175f, heldBlockFaces(*input.equippedBlock));
         return mesh;
     }
 
-    // Empty hands: both hands remain subtly visible at the bottom of the frame during idle/walking.
-    // Only the dominant hand leaves that rest pose when attacking; the left never pops in/out.
-    addVoxelHand(mesh, rightHand, 1.0f, right, up, forward);
+    addVoxelHand(mesh, rightHand.position, 1.0f, rightHand.right, rightHand.up, rightHand.forward);
     addVoxelHand(mesh, leftRest, -1.0f, right, up, forward);
     return mesh;
 }

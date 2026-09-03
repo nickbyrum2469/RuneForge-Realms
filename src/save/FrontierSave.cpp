@@ -1,5 +1,6 @@
 #include "save/FrontierSave.h"
 
+#include "save/TransactionalFileReplace.h"
 #include "save/world/MicroRegionFile.h"
 #include "save/world/RegionFile.h"
 
@@ -12,17 +13,6 @@ namespace rf::save {
 namespace {
 constexpr const char* signature = "RUNEFORGE_FRONTIER_SAVE";
 constexpr int currentSchemaVersion = 3;
-
-bool replaceFile(const std::filesystem::path& temporary, const std::filesystem::path& destination) {
-    std::error_code ec;
-    std::filesystem::rename(temporary, destination, ec);
-    if (!ec) return true;
-    ec.clear();
-    std::filesystem::remove(destination, ec);
-    ec.clear();
-    std::filesystem::rename(temporary, destination, ec);
-    return !ec;
-}
 
 bool readInlineEdits(std::istream& input, FrontierSaveData& data, std::size_t count) {
     data.edits.reserve(data.edits.size() + count);
@@ -180,9 +170,7 @@ std::optional<FrontierSaveData> loadFrontierSave(const std::filesystem::path& pa
         } else if (token == "micro_region_store") {
             int enabled = 0;
             input >> enabled;
-            if (enabled != 0) {
-                data.microEdits = worldstore::MicroRegionFile::readAll(path.parent_path() / "micro-regions");
-            }
+            if (enabled != 0) data.microEdits = worldstore::MicroRegionFile::readAll(path.parent_path() / "micro-regions");
         }
         if (!input) return std::nullopt;
     }
@@ -261,7 +249,7 @@ bool saveFrontierSave(const std::filesystem::path& path, const FrontierSaveData&
     output.flush();
     if (!output) return false;
     output.close();
-    return replaceFile(temporary, path);
+    return detail::replaceFileRollbackSafe(temporary, path);
 }
 
 } // namespace rf::save
