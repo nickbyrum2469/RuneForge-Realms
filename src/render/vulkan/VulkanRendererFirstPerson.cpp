@@ -4,6 +4,7 @@
 
 #include "game/character/CharacterAppearance.h"
 #include "game/character/PlayerBodyRig.h"
+#include "render/scene/CharacterVoxelOrientation.h"
 #include "render/scene/FirstPersonBodyBuilder.h"
 #include "render/scene/VoxelCharacterBuilder.h"
 
@@ -19,8 +20,6 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
     cameraForward = game::normalized(cameraForward);
     if (game::lengthSquared(cameraForward) <= 0.000001f) cameraForward = {0.0f, 0.0f, 1.0f};
 
-    // Character/viewmodel orientation derives from the exact camera direction used by the world
-    // renderer. Do not reconstruct it independently from yaw with a second sign convention.
     game::Vec3 cameraRight = game::normalized({cameraForward.z, 0.0f, -cameraForward.x});
     if (game::lengthSquared(cameraRight) <= 0.000001f) cameraRight = {1.0f, 0.0f, 0.0f};
     game::Vec3 cameraUp = game::normalized(game::cross(cameraForward, cameraRight));
@@ -40,9 +39,6 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
         motion.locomotionPhase = elapsed * (7.2f + motion.locomotionAmount * 1.8f);
         motion.idlePhase = elapsed * 1.75f;
 
-        // MiningSwing currently owns an exact fixed-length world-space right-arm pose. Freeze the
-        // gait only during its short active window so the shoulder cannot visually detach from a
-        // bobbing torso; normal movement immediately resumes after recovery.
         if (miningSwing_.pose().active) motion.locomotionAmount = 0.0f;
 
         auto bodyPose = game::character::PlayerBodyRig::solve(feet,
@@ -55,6 +51,11 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
 
         const game::character::CharacterAppearance appearance{};
         mesh = scene::VoxelCharacterBuilder::build(bodyPose, appearance);
+
+        // The actor centers already rotate with the body pose, but the tiny cubes themselves used to
+        // remain world-axis aligned. That made a 45-degree hero turn into a field of diamonds while
+        // terrain blocks stayed square. Rotate only character voxels around their own centers.
+        scene::orientCharacterVoxels(mesh, bodyPose);
     } else {
         scene::FirstPersonViewModelState state;
         state.eye = eye;
@@ -73,8 +74,6 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
                                                              : game::interaction::MiningSwing::interactionReach;
         state.equippedBlock = selectedPlacementBlock();
 
-        // Unlike 0.5.2, first person is never empty at rest. Bare-handed play keeps both hands subtly
-        // visible at the bottom edge; equipping a hotbar item shows only the dominant hand plus item.
         mesh = scene::FirstPersonBodyBuilder::build(state);
     }
 
