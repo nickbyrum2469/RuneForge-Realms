@@ -41,7 +41,7 @@ bool ChunkManager::ensureResident(ChunkCoord coord, const Generator& generator, 
     return true;
 }
 
-void ChunkManager::pumpCompleted(ChunkStreamDelta& delta) {
+void ChunkManager::pumpCompleted(ChunkCoord center, int retainRadius, ChunkStreamDelta& delta) {
     using namespace std::chrono_literals;
     for (auto it = pending_.begin(); it != pending_.end();) {
         if (it->future.wait_for(0ms) != std::future_status::ready) {
@@ -52,6 +52,12 @@ void ChunkManager::pumpCompleted(ChunkStreamDelta& delta) {
         VoxelChunk chunk = it->future.get();
         queued_.erase(coord);
         it = pending_.erase(it);
+
+        // The player may have moved far away while this prefetch worker was running. Do not briefly
+        // install a completed chunk that is already outside the current retention window only for
+        // unloadFar() to evict it in the same update. That creates false loaded/unloaded deltas and
+        // can trigger pointless downstream mesh/GPU work for terrain the player has already left.
+        if (chebyshevDistance(coord, center) > retainRadius) continue;
         if (chunks_.contains(coord)) continue;
         chunks_.emplace(coord, Record{std::move(chunk), ChunkState::Dirty, 1});
         delta.loaded.push_back(coord);
@@ -111,7 +117,7 @@ ChunkStreamDelta ChunkManager::update(ChunkCoord center,
     center_ = center;
 
     ChunkStreamDelta delta;
-    pumpCompleted(delta);
+    pumpCompleted(center, retainRadius, delta);
 
     for (int dz = -residentRadius; dz <= residentRadius; ++dz) {
         for (int dx = -residentRadius; dx <= residentRadius; ++dx) {

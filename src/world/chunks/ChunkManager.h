@@ -64,7 +64,7 @@ private:
 
     bool ensureResident(ChunkCoord coord, const Generator& generator, ChunkStreamDelta& delta);
     bool consumePending(ChunkCoord coord, ChunkStreamDelta& delta);
-    void pumpCompleted(ChunkStreamDelta& delta);
+    void pumpCompleted(ChunkCoord center, int retainRadius, ChunkStreamDelta& delta);
     void schedulePrefetch(ChunkCoord center, int residentRadius, int prefetchRadius, const Generator& generator);
     void unloadFar(ChunkCoord center, int retainRadius, ChunkStreamDelta& delta);
 
