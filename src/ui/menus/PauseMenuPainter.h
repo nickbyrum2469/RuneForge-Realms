@@ -19,10 +19,10 @@ public:
     [[nodiscard]] PauseAction hitTest(int pixelX, int pixelY) const noexcept;
 
 private:
-    static constexpr native::UiRect resume_{600, 304, 400, 68};
-    static constexpr native::UiRect settings_{600, 388, 400, 68};
-    static constexpr native::UiRect mainMenu_{600, 472, 400, 68};
-    static constexpr native::UiRect quit_{600, 556, 400, 68};
+    static constexpr native::UiRect resume_{570, 330, 460, 66};
+    static constexpr native::UiRect settings_{570, 410, 460, 66};
+    static constexpr native::UiRect mainMenu_{570, 490, 460, 66};
+    static constexpr native::UiRect quit_{570, 570, 460, 66};
 
     native::NativeUiSurface surface_;
 };
