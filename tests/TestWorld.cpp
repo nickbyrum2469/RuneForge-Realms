@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 
 namespace {
 
@@ -62,6 +63,20 @@ void runWorldTests() {
     for (int i = 0; i < 180; ++i) player.update(1.0f / 60.0f, worldA);
     assert(player.grounded());
     assert(player.position().y >= static_cast<float>(top + 1) - 0.05f);
+
+    // A modal/pause transition clears both held controls and one-shot input. In particular, a Space
+    // keydown queued earlier in the same Win32 message pump must not turn into a surprise jump after
+    // the menu closes and gameplay resumes.
+    player.setControl(rf::game::MoveControl::Forward, true);
+    player.setControl(rf::game::MoveControl::Sprint, true);
+    player.setControl(rf::game::MoveControl::Crouch, true);
+    player.requestJump();
+    player.clearInputState();
+    assert(!player.crouching());
+    const auto beforeInputResetUpdate = player.position();
+    player.update(1.0f / 60.0f, worldA);
+    assert(std::abs(player.horizontalSpeed()) < 0.0001f);
+    assert(player.position().y <= beforeInputResetUpdate.y + 0.001f);
 
     // Clear startup dirty state, then verify an edge edit invalidates both owning chunks.
     for (const auto coord : worldA.dirtyChunkCoords()) worldA.markChunkMeshQueued(coord);
