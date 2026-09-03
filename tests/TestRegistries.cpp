@@ -35,7 +35,7 @@ void runRegistryTests() {
 
     const auto& materials = rf::render::materials::MaterialRegistry::all();
     assert(materials.size() == rf::render::materials::MaterialRegistry::materialCount);
-    assert(materials.size() == static_cast<std::size_t>(rf::world::SurfaceMaterial::CharacterLoincloth) + 1u);
+    assert(materials.size() == static_cast<std::size_t>(rf::world::SurfaceMaterial::RootFiber) + 1u);
 
     const auto& material = rf::render::materials::MaterialRegistry::get(rf::world::SurfaceMaterial::Stone);
     assert(material.name == "fractured_stone");
@@ -62,6 +62,10 @@ void runRegistryTests() {
     assert(heroEyeWhite.name == "hero_eye_white");
     assert(heroEyeBlue.name == "hero_eye_blue");
     assert(heroLoincloth.name == "hero_loincloth");
+
+    const auto& rootFiber = rf::render::materials::MaterialRegistry::get(rf::world::SurfaceMaterial::RootFiber);
+    assert(rootFiber.name == "root_fiber");
+    assert(rootFiber.detailProfile == "thin_branching_root_fiber");
 
     assert(rf::world::surfaceMaterial(rf::world::BlockId::Grass, 1, +1) == rf::world::SurfaceMaterial::GrassTop);
     assert(rf::world::surfaceMaterial(rf::world::BlockId::Grass, 0, +1) == rf::world::SurfaceMaterial::GrassSide);
