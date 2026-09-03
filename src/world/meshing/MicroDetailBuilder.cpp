@@ -73,8 +73,6 @@ BlockId blockAt(const ChunkMeshingSnapshot& snapshot, int x, int y, int z) noexc
 }
 
 bool grassTopVisible(BlockId above) noexcept {
-    // Canopy is not terrain ownership. Leaves higher in the column must never suppress the ground
-    // surface-detail pass, and an immediately adjacent leaf remains porous enough for short turf.
     return above == BlockId::Air || above == BlockId::Leaves;
 }
 
@@ -126,14 +124,15 @@ void addGrassTop(const ChunkMeshingSnapshot& snapshot, VoxelMesh& mesh,
         for (int u = 0; u < surface::SurfaceReliefField::resolution; u += stride) {
             if (!microCellVisible(state, surface::SurfaceFace::Top, u, v)) continue;
             const auto& cell = field.cell(u, v);
-            const float x0 = static_cast<float>(localX) + static_cast<float>(u) * cellSize + cellSize * 0.04f;
-            const float z0 = static_cast<float>(localZ) + static_cast<float>(v) * cellSize + cellSize * 0.04f;
-            const float span = cellSize * static_cast<float>(stride) - cellSize * 0.08f;
+            const float x0 = static_cast<float>(localX) + static_cast<float>(u) * cellSize;
+            const float z0 = static_cast<float>(localZ) + static_cast<float>(v) * cellSize;
+            const float span = cellSize * static_cast<float>(stride);
             const float surfaceY = static_cast<float>(y + 1) + cell.heightOffset;
 
             if (budget.emitTopRelief) {
-                // One micro-plate per sampled cell is substantially cheaper than a full cuboid field
-                // while still creating real stepped grazing-light depth over the macro face.
+                // Adjacent top plates meet edge-to-edge. 0.6.0 inset every cell and therefore drew
+                // long artificial grout channels through the meadow. Height variation now supplies
+                // the readable micro-piece separation without a world-scale 16x16 line lattice.
                 addQuad(mesh,
                         {x0, surfaceY, z0 + span}, {x0 + span, surfaceY, z0 + span},
                         {x0 + span, surfaceY, z0}, {x0, surfaceY, z0},
@@ -150,19 +149,20 @@ void addGrassTop(const ChunkMeshingSnapshot& snapshot, VoxelMesh& mesh,
                              cell.vegetationOffsetU;
             const float cz = static_cast<float>(localZ) + (static_cast<float>(v) + 0.5f) * cellSize +
                              cell.vegetationOffsetV;
-            const float width = 0.014f + static_cast<float>(cell.stableId & 3u) * 0.002f;
-            const float depth = 0.015f + static_cast<float>((cell.stableId >> 2) & 3u) * 0.0015f;
+            const float width = 0.012f + static_cast<float>(cell.stableId & 3u) * 0.0020f;
+            const float depth = 0.013f + static_cast<float>((cell.stableId >> 2) & 3u) * 0.0018f;
             addBox(mesh, cx - width * 0.5f, surfaceY, cz - depth * 0.5f,
                    width, cell.bladeHeight, depth, SurfaceMaterial::GrassTop);
 
             if (cell.bladeCount >= 2) {
-                const float companion = cell.bladeHeight * (0.62f +
-                    static_cast<float>((cell.stableId >> 5) & 3u) * 0.07f);
-                const float offset = cellSize * 0.22f;
-                const float sign = ((cell.stableId >> 8) & 1u) ? 1.0f : -1.0f;
-                addBox(mesh, cx + sign * offset - width * 0.36f, surfaceY,
-                       cz - sign * offset - depth * 0.36f,
-                       width * 0.72f, companion, depth * 0.72f, SurfaceMaterial::GrassTop);
+                const float companion = cell.bladeHeight * (0.58f +
+                    static_cast<float>((cell.stableId >> 5) & 3u) * 0.075f);
+                const float offset = cellSize * (0.16f + static_cast<float>((cell.stableId >> 10) & 3u) * 0.025f);
+                const float signU = ((cell.stableId >> 8) & 1u) ? 1.0f : -1.0f;
+                const float signV = ((cell.stableId >> 9) & 1u) ? 1.0f : -1.0f;
+                addBox(mesh, cx + signU * offset - width * 0.34f, surfaceY,
+                       cz + signV * offset - depth * 0.34f,
+                       width * 0.68f, companion, depth * 0.68f, SurfaceMaterial::GrassTop);
             }
             if (cell.vegetation == surface::VegetationProfile::FlowerCapable &&
                 (cell.stableId % 11u) == 0u) {
@@ -175,50 +175,137 @@ void addGrassTop(const ChunkMeshingSnapshot& snapshot, VoxelMesh& mesh,
 }
 
 SurfaceMaterial sideMaterial(bool grassBlock, surface::ReliefClass relief) noexcept {
-    if (!grassBlock) return SurfaceMaterial::Dirt;
-    if (relief == surface::ReliefClass::Turf || relief == surface::ReliefClass::Root) {
-        return SurfaceMaterial::GrassSide;
-    }
+    if (relief == surface::ReliefClass::Root) return SurfaceMaterial::RootFiber;
+    if (relief == surface::ReliefClass::Mineral) return SurfaceMaterial::Stone;
+    if (grassBlock && relief == surface::ReliefClass::Turf) return SurfaceMaterial::GrassSide;
     return SurfaceMaterial::Dirt;
+}
+
+void emitSidePlate(VoxelMesh& mesh, int x, int y, int z, surface::SurfaceFace face,
+                   int u, int v, int stride, float outwardOffset, SurfaceMaterial material) {
+    constexpr float cellSize = 1.0f / static_cast<float>(surface::SurfaceReliefField::resolution);
+    const float span = cellSize * static_cast<float>(stride);
+    const float horizontal = static_cast<float>(u) * cellSize;
+    const float vertical = static_cast<float>(y) + static_cast<float>(v) * cellSize;
+    const float offset = std::max(0.002f, outwardOffset);
+
+    switch (face) {
+        case surface::SurfaceFace::North: {
+            const float x0 = static_cast<float>(x) + horizontal;
+            const float zz = static_cast<float>(z) - offset;
+            addQuad(mesh, {x0 + span, vertical, zz}, {x0, vertical, zz},
+                    {x0, vertical + span, zz}, {x0 + span, vertical + span, zz},
+                    {0, 0, -1}, material);
+            break;
+        }
+        case surface::SurfaceFace::South: {
+            const float x0 = static_cast<float>(x) + horizontal;
+            const float zz = static_cast<float>(z + 1) + offset;
+            addQuad(mesh, {x0, vertical, zz}, {x0 + span, vertical, zz},
+                    {x0 + span, vertical + span, zz}, {x0, vertical + span, zz},
+                    {0, 0, 1}, material);
+            break;
+        }
+        case surface::SurfaceFace::East: {
+            const float z0 = static_cast<float>(z) + horizontal;
+            const float xx = static_cast<float>(x + 1) + offset;
+            addQuad(mesh, {xx, vertical, z0 + span}, {xx, vertical, z0},
+                    {xx, vertical + span, z0}, {xx, vertical + span, z0 + span},
+                    {1, 0, 0}, material);
+            break;
+        }
+        case surface::SurfaceFace::West: {
+            const float z0 = static_cast<float>(z) + horizontal;
+            const float xx = static_cast<float>(x) - offset;
+            addQuad(mesh, {xx, vertical, z0}, {xx, vertical, z0 + span},
+                    {xx, vertical + span, z0 + span}, {xx, vertical + span, z0},
+                    {-1, 0, 0}, material);
+            break;
+        }
+        case surface::SurfaceFace::Top: break;
+    }
+}
+
+void emitRootFiber(VoxelMesh& mesh, int x, int y, int z, surface::SurfaceFace face,
+                   int u, int v, int stride, const surface::SurfaceCell& cell) {
+    constexpr float cellSize = 1.0f / static_cast<float>(surface::SurfaceReliefField::resolution);
+    const float span = cellSize * static_cast<float>(stride);
+    const float rootWidth = 0.010f + static_cast<float>((cell.stableId >> 3) & 3u) * 0.0022f;
+    const float rootDepth = 0.006f + static_cast<float>((cell.stableId >> 7) & 3u) * 0.0015f;
+    const float soilOffset = 0.006f + static_cast<float>((cell.stableId >> 11) & 3u) * 0.0013f;
+    const float jitter = (static_cast<float>((cell.stableId >> 13) & 7u) / 7.0f - 0.5f) * cellSize * 0.28f;
+    const float vertical = static_cast<float>(y) + static_cast<float>(v) * cellSize;
+    const float localCenter = (static_cast<float>(u) + 0.5f) * cellSize + jitter;
+
+    // Every root path cell still has soil behind it. Only the actual fiber projects farther out.
+    emitSidePlate(mesh, x, y, z, face, u, v, stride, soilOffset, SurfaceMaterial::Dirt);
+
+    switch (face) {
+        case surface::SurfaceFace::North:
+            addBox(mesh, static_cast<float>(x) + localCenter - rootWidth * 0.5f, vertical,
+                   static_cast<float>(z) - soilOffset - rootDepth,
+                   rootWidth, span, rootDepth, SurfaceMaterial::RootFiber);
+            break;
+        case surface::SurfaceFace::South:
+            addBox(mesh, static_cast<float>(x) + localCenter - rootWidth * 0.5f, vertical,
+                   static_cast<float>(z + 1) + soilOffset,
+                   rootWidth, span, rootDepth, SurfaceMaterial::RootFiber);
+            break;
+        case surface::SurfaceFace::East:
+            addBox(mesh, static_cast<float>(x + 1) + soilOffset, vertical,
+                   static_cast<float>(z) + localCenter - rootWidth * 0.5f,
+                   rootDepth, span, rootWidth, SurfaceMaterial::RootFiber);
+            break;
+        case surface::SurfaceFace::West:
+            addBox(mesh, static_cast<float>(x) - soilOffset - rootDepth, vertical,
+                   static_cast<float>(z) + localCenter - rootWidth * 0.5f,
+                   rootDepth, span, rootWidth, SurfaceMaterial::RootFiber);
+            break;
+        case surface::SurfaceFace::Top: return;
+    }
+
+    // Occasional short side branch breaks the old ladder/column silhouette without creating giant
+    // roots. It stays within the owning surface cell so the future damage mapping remains stable.
+    if (((cell.stableId >> 5) & 3u) == 0u) {
+        const float branchLength = cellSize * (0.30f + static_cast<float>((cell.stableId >> 9) & 3u) * 0.055f);
+        const bool positive = ((cell.stableId >> 12) & 1u) != 0u;
+        const float branchStart = localCenter + (positive ? 0.0f : -branchLength);
+        const float branchY = vertical + span * 0.55f - rootWidth * 0.40f;
+        switch (face) {
+            case surface::SurfaceFace::North:
+                addBox(mesh, static_cast<float>(x) + branchStart, branchY,
+                       static_cast<float>(z) - soilOffset - rootDepth,
+                       branchLength, rootWidth * 0.80f, rootDepth, SurfaceMaterial::RootFiber);
+                break;
+            case surface::SurfaceFace::South:
+                addBox(mesh, static_cast<float>(x) + branchStart, branchY,
+                       static_cast<float>(z + 1) + soilOffset,
+                       branchLength, rootWidth * 0.80f, rootDepth, SurfaceMaterial::RootFiber);
+                break;
+            case surface::SurfaceFace::East:
+                addBox(mesh, static_cast<float>(x + 1) + soilOffset, branchY,
+                       static_cast<float>(z) + branchStart,
+                       rootDepth, rootWidth * 0.80f, branchLength, SurfaceMaterial::RootFiber);
+                break;
+            case surface::SurfaceFace::West:
+                addBox(mesh, static_cast<float>(x) - soilOffset - rootDepth, branchY,
+                       static_cast<float>(z) + branchStart,
+                       rootDepth, rootWidth * 0.80f, branchLength, SurfaceMaterial::RootFiber);
+                break;
+            case surface::SurfaceFace::Top: break;
+        }
+    }
 }
 
 void emitSideCell(VoxelMesh& mesh, int x, int y, int z, surface::SurfaceFace face,
                   int u, int v, int stride, const surface::SurfaceCell& cell,
                   bool grassBlock) {
-    constexpr float cellSize = 1.0f / static_cast<float>(surface::SurfaceReliefField::resolution);
-    const float inset = cellSize * 0.05f;
-    const float span = cellSize * static_cast<float>(stride) - inset * 2.0f;
-    const float vertical = static_cast<float>(y) + static_cast<float>(v) * cellSize + inset;
-    const float thickness = std::max(0.004f, cell.heightOffset);
-    const SurfaceMaterial material = sideMaterial(grassBlock, cell.relief);
-
-    switch (face) {
-        case surface::SurfaceFace::North: {
-            const float horizontal = static_cast<float>(x) + static_cast<float>(u) * cellSize + inset;
-            addBox(mesh, horizontal, vertical, static_cast<float>(z) - thickness,
-                   span, span, thickness, material);
-            break;
-        }
-        case surface::SurfaceFace::South: {
-            const float horizontal = static_cast<float>(x) + static_cast<float>(u) * cellSize + inset;
-            addBox(mesh, horizontal, vertical, static_cast<float>(z + 1),
-                   span, span, thickness, material);
-            break;
-        }
-        case surface::SurfaceFace::East: {
-            const float horizontal = static_cast<float>(z) + static_cast<float>(u) * cellSize + inset;
-            addBox(mesh, static_cast<float>(x + 1), vertical, horizontal,
-                   thickness, span, span, material);
-            break;
-        }
-        case surface::SurfaceFace::West: {
-            const float horizontal = static_cast<float>(z) + static_cast<float>(u) * cellSize + inset;
-            addBox(mesh, static_cast<float>(x) - thickness, vertical, horizontal,
-                   thickness, span, span, material);
-            break;
-        }
-        case surface::SurfaceFace::Top: break;
+    if (cell.relief == surface::ReliefClass::Root) {
+        emitRootFiber(mesh, x, y, z, face, u, v, stride, cell);
+        return;
     }
+    emitSidePlate(mesh, x, y, z, face, u, v, stride, cell.heightOffset,
+                  sideMaterial(grassBlock, cell.relief));
 }
 
 void addSoilSide(const ChunkMeshingSnapshot& snapshot, VoxelMesh& mesh,
@@ -233,8 +320,8 @@ void addSoilSide(const ChunkMeshingSnapshot& snapshot, VoxelMesh& mesh,
     const int sampledCells = sampledAxis * sampledAxis;
     std::uint32_t emitted = 0;
 
-    // Roots/turf are the silhouette-defining priority pass. Soil/mineral clods then fill the remaining
-    // budget. Cavities intentionally emit nothing so the macro/micro face behind them becomes recess.
+    // Turf/root fibers are preserved first. Remaining budget fills the face with cheap one-quad
+    // micro-plates. This replaces the sparse six-quad boxes that looked glued onto a flat wall.
     for (int priority = 0; priority < 2 && emitted < budget.maxSideReliefCells; ++priority) {
         for (int v = 0; v < surface::SurfaceReliefField::resolution && emitted < budget.maxSideReliefCells; v += stride) {
             for (int u = 0; u < surface::SurfaceReliefField::resolution && emitted < budget.maxSideReliefCells; u += stride) {
@@ -336,7 +423,7 @@ void addLegacyTopDetail(const ChunkMeshingSnapshot& snapshot, VoxelMesh& mesh,
                                size, size * 0.62f, size, SurfaceMaterial::Leaves);
                     }
                 }
-                break; // Preserve legacy topmost-only behavior for unrelated material families.
+                break;
             }
         }
     }
@@ -349,8 +436,6 @@ void MicroDetailBuilder::append(const ChunkMeshingSnapshot& snapshot, VoxelMesh&
     if (tier == SurfaceDetailTier::Distant) return;
     const auto budget = budgetFor(tier);
 
-    // Grass/dirt surfaces are evaluated per block, not per highest-solid column. A leaf canopy can
-    // therefore influence shading/ecology later without taking ownership of the soil detail pass.
     for (int z = 0; z < VoxelChunk::sizeZ; ++z) {
         for (int x = 0; x < VoxelChunk::sizeX; ++x) {
             for (int y = 0; y < VoxelChunk::sizeY; ++y) {
@@ -374,8 +459,8 @@ void MicroDetailBuilder::append(const ChunkMeshingSnapshot& snapshot, VoxelMesh&
         }
     }
 
-    // Promoted blocks are removed from snapshot.center by FrontierWorld. Re-enter them through the
-    // same deterministic field and gate each visual cell through 8x8 physical occupancy.
+    // Promoted blocks use the exact same deterministic 16x16 field and only mask visual cells
+    // through existing 8x8 physical occupancy. Remeshing therefore cannot invent a new pattern.
     for (const auto& promoted : snapshot.microBlocks) {
         if (!promoted.owned || promoted.block != BlockId::Grass) continue;
         if (stats) {

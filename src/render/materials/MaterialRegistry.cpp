@@ -23,6 +23,7 @@ constexpr std::array<MaterialDefinition, MaterialRegistry::materialCount> kMater
     {world::SurfaceMaterial::CharacterEyeWhite, "hero_eye_white", 0.52f, 0.0f, 0.0f, 0.92f, 28.0f, 0.04f, "clean_eye_white"},
     {world::SurfaceMaterial::CharacterEyeBlue, "hero_eye_blue", 0.31f, 0.0f, 0.0f, 0.96f, 34.0f, 0.05f, "bright_blue_iris"},
     {world::SurfaceMaterial::CharacterLoincloth, "hero_loincloth", 0.95f, 0.0f, 0.0f, 0.61f, 13.0f, 0.12f, "rough_olive_survival_cloth"},
+    {world::SurfaceMaterial::RootFiber, "root_fiber", 0.98f, 0.0f, 0.0f, 0.72f, 10.0f, 0.18f, "thin_branching_root_fiber"},
 }};
 
 } // namespace
