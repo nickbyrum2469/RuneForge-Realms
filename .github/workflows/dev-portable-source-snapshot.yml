@@ -1,0 +1,23 @@
+name: Dev Portable Source Snapshot
+
+on:
+  push:
+    branches:
+      - feat/portable-visual-lab-0.6.4
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload repository source
+        uses: actions/upload-artifact@v4
+        with:
+          name: runeforge-portable-source
+          retention-days: 1
+          path: |
+            .
+            !.git
