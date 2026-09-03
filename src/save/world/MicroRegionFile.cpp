@@ -1,5 +1,7 @@
 #include "save/world/MicroRegionFile.h"
 
+#include "save/TransactionalFileReplace.h"
+
 #include <fstream>
 #include <map>
 #include <set>
@@ -9,17 +11,6 @@ namespace rf::save::worldstore {
 namespace {
 constexpr const char* signature = "RUNEFORGE_MICRO_REGION";
 constexpr int schemaVersion = 1;
-
-bool replaceFile(const std::filesystem::path& temporary, const std::filesystem::path& destination) {
-    std::error_code ec;
-    std::filesystem::rename(temporary, destination, ec);
-    if (!ec) return true;
-    ec.clear();
-    std::filesystem::remove(destination, ec);
-    ec.clear();
-    std::filesystem::rename(temporary, destination, ec);
-    return !ec;
-}
 } // namespace
 
 std::filesystem::path MicroRegionFile::pathFor(const std::filesystem::path& directory, RegionCoord coord) {
@@ -42,7 +33,7 @@ bool MicroRegionFile::writeOne(const std::filesystem::path& path, RegionCoord co
     output.flush();
     if (!output) return false;
     output.close();
-    return replaceFile(temporary, path);
+    return rf::save::detail::replaceFileRollbackSafe(temporary, path);
 }
 
 bool MicroRegionFile::writeAll(const std::filesystem::path& directory,
