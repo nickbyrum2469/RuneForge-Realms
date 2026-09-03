@@ -11,10 +11,11 @@ int main() {
     runMeshSchedulingTests();
     runMicroMiningTests();
     runInventoryGrowthTests();
+    runSurfaceReliefTests();
     runDropTests();
     runPolishFoundationTests();
     runCharacterRigTests();
 
-    std::cout << "RuneForge 0.5.0 commercial-foundation tests passed\n";
+    std::cout << "RuneForge core regression tests passed\n";
     return 0;
 }
