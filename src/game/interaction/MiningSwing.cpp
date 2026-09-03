@@ -8,10 +8,8 @@
 namespace rf::game::interaction {
 namespace {
 
-float smooth01(float value) noexcept {
-    value = std::clamp(value, 0.0f, 1.0f);
-    return value * value * (3.0f - 2.0f * value);
-}
+constexpr float pi = 3.14159265358979323846f;
+constexpr float impactTime = 0.30f;
 
 float distance(Vec3 a, Vec3 b) noexcept {
     const Vec3 d = b - a;
@@ -64,9 +62,8 @@ bool MiningSwing::begin(const world::RaycastHit& target,
     if (target_.hit) {
         const Vec3 contact{target.worldX, target.worldY, target.worldZ};
         targetDistance_ = distance(eye, contact);
-        if (targetDistance_ <= interactionReach) {
-            targetPoint_ = contact;
-        } else {
+        if (targetDistance_ <= interactionReach) targetPoint_ = contact;
+        else {
             target_ = {};
             targetDistance_ = interactionReach;
         }
@@ -92,30 +89,25 @@ Vec3 MiningSwing::calculateDesiredHand(float t,
     const auto restPose = character::PlayerBodyRig::solve(feet, bodyForward, crouching);
     const Vec3 rest = restPose.rightArm.hand;
 
-    // Third-person anatomy stays fixed-length, but the intended strike depth now responds to the
-    // crosshair target distance. The first-person camera-space hand uses the same targetDistance value.
+    // Match the first-person viewmodel's compact Minecraft-like timing. The arm starts from its
+    // existing anatomical rest pose, sweeps inward/forward quickly, and recovers without a long
+    // below-camera windup. The desired point can move farther for distant targets, but the fixed
+    // two-bone solve still clamps anatomy rather than telescoping the limb.
+    const float normalizedT = std::clamp(t, 0.0f, 1.0f);
+    const float root = std::sqrt(normalizedT);
+    const float arc = std::sin(root * pi);
+    const float forwardPulse = std::sin(normalizedT * pi);
+    const float verticalWave = std::sin(root * pi * 2.0f);
+    const float centerWeight = std::clamp(arc * arc * 0.82f, 0.0f, 0.82f);
     const float targetRatio = std::clamp(targetDistance_ / interactionReach, 0.0f, 1.0f);
-    const float strikeDepth = 0.47f + targetRatio * 0.18f;
+    const float strikeDepth = 0.50f + targetRatio * 0.15f;
     const Vec3 centerStrike = eye + forward * strikeDepth;
-    const Vec3 windup = rest - forward * 0.11f + right * 0.18f + up * 0.08f;
-    const Vec3 strike = centerStrike;
-    const Vec3 follow = eye + forward * (strikeDepth + 0.045f) - right * 0.12f - up * 0.075f;
 
-    if (t < 0.18f) {
-        const float u = smooth01(t / 0.18f);
-        return rest * (1.0f - u) + windup * u;
-    }
-    if (t < 0.56f) {
-        const float u = smooth01((t - 0.18f) / 0.38f);
-        const float arc = std::sin(u * 3.14159265f);
-        return windup * (1.0f - u) + strike * u + up * (arc * 0.090f) - right * (arc * 0.055f);
-    }
-    if (t < 0.74f) {
-        const float u = smooth01((t - 0.56f) / 0.18f);
-        return strike * (1.0f - u) + follow * u;
-    }
-    const float u = smooth01((t - 0.74f) / 0.26f);
-    return follow * (1.0f - u) + rest * u;
+    Vec3 desired = rest * (1.0f - centerWeight) + centerStrike * centerWeight;
+    desired = desired - right * (arc * 0.070f)
+                      + up * (verticalWave * 0.040f)
+                      + forward * (forwardPulse * (0.025f + targetRatio * 0.025f));
+    return desired;
 }
 
 void MiningSwing::updatePose(float t,
@@ -154,10 +146,10 @@ std::optional<SwingContact> MiningSwing::update(float deltaSeconds,
     updatePose(t, feet, crouching, eye, forward, right, up);
 
     std::optional<SwingContact> contact;
-    // 0.56 is the exact visual strike endpoint in both the third-person pose and first-person
-    // viewmodel. Terrain contact therefore happens on the frame the knuckles arrive at the center
-    // crosshair rather than slightly before them.
-    const bool crossedImpact = previousT < 0.56f && t >= 0.56f;
+    // Center-ray nomination remains authoritative. The impact fires at the early peak of the compact
+    // viewmodel sweep, rather than the old 56%-through punch, so what the player sees and what the
+    // terrain receives happen together. One swing still receives only one nominated solid contact.
+    const bool crossedImpact = previousT < impactTime && t >= impactTime;
     if (!contactMade_ && crossedImpact && target_.hit &&
         world.getBlock(target_.block.x, target_.block.y, target_.block.z) != world::BlockId::Air) {
         contactMade_ = true;
