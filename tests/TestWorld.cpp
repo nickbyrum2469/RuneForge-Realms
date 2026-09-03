@@ -112,4 +112,22 @@ void runWorldTests() {
         if (!streaming.contains({1, 0})) std::this_thread::sleep_for(std::chrono::milliseconds{1});
     }
     assert(streaming.contains({1, 0}));
+
+    // Completed prefetch from an abandoned area must not be reported as loaded only to be evicted in
+    // the same update. Such false deltas can otherwise trigger needless downstream mesh/GPU work.
+    rf::world::ChunkManager stalePrefetch;
+    const rf::world::ChunkManager::Generator fastGenerator = [](rf::world::ChunkCoord) {
+        rf::world::VoxelChunk chunk;
+        chunk.set(1, 1, 1, rf::world::BlockId::Stone);
+        return chunk;
+    };
+    (void)stalePrefetch.update({0, 0}, 0, 1, 1, fastGenerator);
+    assert(stalePrefetch.pendingCount() > 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds{20});
+
+    const rf::world::ChunkCoord farCenter{20, 0};
+    const auto farDelta = stalePrefetch.update(farCenter, 0, 1, 1, fastGenerator);
+    for (const auto coord : farDelta.loaded) {
+        assert(rf::world::chebyshevDistance(coord, farCenter) <= 1);
+    }
 }
