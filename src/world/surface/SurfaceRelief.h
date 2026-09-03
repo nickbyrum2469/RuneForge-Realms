@@ -91,10 +91,10 @@ public:
     }
 
     [[nodiscard]] static constexpr SurfaceReliefBudget heroBudget() noexcept {
-        return {1, 48, 80, 96, true, true, true};
+        return {1, 256, 48, 96, true, true, true};
     }
     [[nodiscard]] static constexpr SurfaceReliefBudget standardBudget() noexcept {
-        return {2, 20, 28, 32, true, true, true};
+        return {2, 64, 18, 32, true, true, true};
     }
     [[nodiscard]] static constexpr SurfaceReliefBudget distantBudget() noexcept {
         return {4, 0, 0, 0, false, false, false};
