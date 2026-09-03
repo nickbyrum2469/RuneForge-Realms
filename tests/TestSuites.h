@@ -8,6 +8,7 @@ void runCullingTests();
 void runMeshSchedulingTests();
 void runMicroMiningTests();
 void runInventoryGrowthTests();
+void runSurfaceReliefTests();
 void runDropTests();
 void runPolishFoundationTests();
 void runCharacterRigTests();
