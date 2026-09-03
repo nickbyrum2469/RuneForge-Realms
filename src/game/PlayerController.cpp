@@ -12,8 +12,10 @@ void PlayerController::spawn(Vec3 feetPosition, float yaw, float pitch) noexcept
     velocity_ = {};
     yaw_ = yaw;
     pitch_ = std::clamp(pitch, -1.45f, 1.45f);
+    actualHorizontalSpeed_ = 0.0f;
+    horizontalTravelDistance_ = 0.0f;
     grounded_ = false;
-    jumpRequested_ = false;
+    clearInputState();
 }
 
 void PlayerController::setMouseSensitivity(float scale) noexcept {
@@ -29,6 +31,16 @@ void PlayerController::setControl(MoveControl control, bool pressed) noexcept {
         case MoveControl::Sprint: sprint_ = pressed; break;
         case MoveControl::Crouch: crouch_ = pressed; break;
     }
+}
+
+void PlayerController::clearInputState() noexcept {
+    forward_ = false;
+    backward_ = false;
+    left_ = false;
+    right_ = false;
+    sprint_ = false;
+    crouch_ = false;
+    jumpRequested_ = false;
 }
 
 void PlayerController::addLook(float deltaX, float deltaY) noexcept {
@@ -84,11 +96,19 @@ void PlayerController::update(float deltaSeconds, const world::FrontierWorld& wo
     velocity_.y -= 18.5f * dt;
     velocity_.y = std::max(velocity_.y, -28.0f);
 
+    const Vec3 horizontalBefore = position_;
     moveAxis(world, velocity_.x * dt, 0);
     moveAxis(world, velocity_.z * dt, 2);
+    const float dx = position_.x - horizontalBefore.x;
+    const float dz = position_.z - horizontalBefore.z;
+    const float moved = std::sqrt(dx * dx + dz * dz);
+    actualHorizontalSpeed_ = dt > 0.000001f ? moved / dt : 0.0f;
+    horizontalTravelDistance_ += moved;
+
     const float beforeY = position_.y;
     moveAxis(world, velocity_.y * dt, 1);
-    if (velocity_.y <= 0.0f && position_.y == beforeY && collides(world, {position_.x, position_.y - 0.02f, position_.z})) {
+    if (velocity_.y <= 0.0f && position_.y == beforeY &&
+        collides(world, {position_.x, position_.y - 0.02f, position_.z})) {
         grounded_ = true;
     }
 }
