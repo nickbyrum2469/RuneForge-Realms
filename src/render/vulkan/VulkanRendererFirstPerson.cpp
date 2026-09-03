@@ -3,6 +3,7 @@
 #include "render/vulkan/VulkanRenderer.h"
 
 #include "game/character/CharacterAppearance.h"
+#include "game/character/CharacterLocomotion.h"
 #include "game/character/PlayerBodyRig.h"
 #include "render/scene/CharacterVoxelOrientation.h"
 #include "render/scene/FirstPersonBodyBuilder.h"
@@ -34,11 +35,13 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
         if (game::lengthSquared(bodyForward) <= 0.000001f) bodyForward = {0.0f, 0.0f, 1.0f};
 
         game::character::BodyMotionState motion;
-        const float speed = player_.horizontalSpeed();
+        const float speed = player_.actualHorizontalSpeed();
         motion.locomotionAmount = std::clamp(speed / 4.8f, 0.0f, 1.0f);
-        motion.locomotionPhase = elapsed * (7.2f + motion.locomotionAmount * 1.8f);
+        motion.locomotionPhase = game::character::locomotionPhaseFromDistance(player_.horizontalTravelDistance());
         motion.idlePhase = elapsed * 1.75f;
 
+        // Freeze the gait only during the active mining swing so the shoulder used by the physical
+        // strike cannot detach from a moving torso. The normal distance-driven gait resumes after it.
         if (miningSwing_.pose().active) motion.locomotionAmount = 0.0f;
 
         auto bodyPose = game::character::PlayerBodyRig::solve(feet,
@@ -51,10 +54,6 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
 
         const game::character::CharacterAppearance appearance{};
         mesh = scene::VoxelCharacterBuilder::build(bodyPose, appearance);
-
-        // The actor centers already rotate with the body pose, but the tiny cubes themselves used to
-        // remain world-axis aligned. That made a 45-degree hero turn into a field of diamonds while
-        // terrain blocks stayed square. Rotate only character voxels around their own centers.
         scene::orientCharacterVoxels(mesh, bodyPose);
     } else {
         scene::FirstPersonViewModelState state;
@@ -63,9 +62,9 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
         state.right = cameraRight;
         state.up = cameraUp;
 
-        const float speed = player_.horizontalSpeed();
+        const float speed = player_.actualHorizontalSpeed();
         state.walkAmount = std::clamp(speed / 4.8f, 0.0f, 1.0f);
-        state.walkPhase = elapsed * (7.6f + state.walkAmount * 2.2f);
+        state.walkPhase = game::character::locomotionPhaseFromDistance(player_.horizontalTravelDistance());
 
         const auto& swing = miningSwing_.pose();
         state.swingActive = swing.active;
@@ -73,7 +72,6 @@ bool VulkanRenderer::updateFirstPersonBodyMesh() {
         state.targetDistance = swing.targetDistance > 0.001f ? swing.targetDistance
                                                              : game::interaction::MiningSwing::interactionReach;
         state.equippedBlock = selectedPlacementBlock();
-
         mesh = scene::FirstPersonBodyBuilder::build(state);
     }
 
