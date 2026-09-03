@@ -38,31 +38,56 @@ float signedUnit(std::uint32_t value) noexcept {
     return unit(value) * 2.0f - 1.0f;
 }
 
-int floorDiv4(int value) noexcept {
-    if (value >= 0) return value / 4;
-    return -(((-value) + 3) / 4);
+int floorDiv(int value, int divisor) noexcept {
+    if (value >= 0) return value / divisor;
+    return -(((-value) + divisor - 1) / divisor);
 }
 
-std::uint32_t patchHash(std::uint32_t seed, BlockCoord block) noexcept {
-    BlockCoord patch{floorDiv4(block.x), 0, floorDiv4(block.z)};
-    return hashBlock(seed, patch, 0x51ed270bu);
+float smooth01(float t) noexcept {
+    t = std::clamp(t, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// Broad ecological variation must be continuous. The 0.6.0 implementation hashed hard 4x4
+// regions, which removed exact block cloning but created square density/palette boundaries that
+// were still visible as long meadow bands. Bilinear lattice noise keeps the regional tendency
+// while removing those hard world-grid transitions.
+float regionalValue(std::uint32_t seed, BlockCoord block, std::uint32_t salt,
+                    int span = 7) noexcept {
+    const int gx = floorDiv(block.x, span);
+    const int gz = floorDiv(block.z, span);
+    const int localX = block.x - gx * span;
+    const int localZ = block.z - gz * span;
+    const float tx = smooth01((static_cast<float>(localX) + 0.5f) / static_cast<float>(span));
+    const float tz = smooth01((static_cast<float>(localZ) + 0.5f) / static_cast<float>(span));
+
+    const auto lattice = [&](int x, int z) {
+        return unit(hashBlock(seed, {x, 0, z}, salt));
+    };
+    const float a = lattice(gx, gz);
+    const float b = lattice(gx + 1, gz);
+    const float c = lattice(gx, gz + 1);
+    const float d = lattice(gx + 1, gz + 1);
+    const float x0 = a + (b - a) * tx;
+    const float x1 = c + (d - c) * tx;
+    return x0 + (x1 - x0) * tz;
 }
 
 VegetationProfile profileFor(std::uint32_t h, std::uint8_t& bladeCount) noexcept {
     const std::uint32_t roll = (h >> 5) % 100u;
-    if (roll < 13u) {
+    if (roll < 12u) {
         bladeCount = 1;
         return VegetationProfile::TinyBlade;
     }
-    if (roll < 37u) {
+    if (roll < 35u) {
         bladeCount = 1;
         return VegetationProfile::ShortBlade;
     }
-    if (roll < 51u) {
+    if (roll < 49u) {
         bladeCount = 1;
         return VegetationProfile::TallBlade;
     }
-    if (roll < 76u) {
+    if (roll < 75u) {
         bladeCount = 2;
         return VegetationProfile::TwoBladeTuft;
     }
@@ -85,8 +110,8 @@ bool rootCell(std::uint32_t base, int u, int v) noexcept {
     const int centerA = std::clamp(startA + driftA * (depth / 4), 1, 14);
     const int centerB = std::clamp(startB + driftB * (depth / 5), 1, 14);
 
-    if (u == centerA || (depth > 7 && u == centerB)) return true;
-    if (depth >= 5 && depth <= 10 && (depth % 3) == static_cast<int>((base >> 27) % 3u)) {
+    if (u == centerA || (depth > 8 && u == centerB)) return true;
+    if (depth >= 5 && depth <= 11 && (depth % 3) == static_cast<int>((base >> 27) % 3u)) {
         const int branch = centerA + ((((base >> (depth % 16)) & 1u) != 0u) ? 1 : -1);
         if (u == branch) return true;
     }
@@ -98,14 +123,19 @@ bool rootCell(std::uint32_t base, int u, int v) noexcept {
 SurfaceReliefField SurfaceRelief::grassTop(std::uint32_t worldSeed, BlockCoord block,
                                            float worldAgeSeconds) noexcept {
     SurfaceReliefField field;
-    const std::uint32_t patch = patchHash(worldSeed, block);
     const std::uint32_t blockBase = hashBlock(worldSeed, block, 0xa24baed5u);
+    const float regionalDensity = regionalValue(worldSeed, block, 0x51ed270bu);
+    const float regionalHeight = regionalValue(worldSeed, block, 0x7f4a7c15u, 9);
+    const float regionalTone = regionalValue(worldSeed, block, 0x94d049bbu, 11);
 
-    const float patchDensity = 0.88f + unit(patch) * 0.08f;
-    const float blockDensityOffset = signedUnit(blockBase >> 9) * 0.035f;
-    field.vegetationDensity = std::clamp(patchDensity + blockDensityOffset, 0.84f, 0.98f);
-    field.vegetationHeightScale = 0.90f + unit(patch >> 7) * 0.18f;
-    field.paletteFamily = static_cast<std::uint8_t>((patch >> 19) & 3u);
+    // Dense meadow coverage with a small per-block identity layered over a continuous regional
+    // field. No hard 4x4 patch boundaries are allowed to show up in the world anymore.
+    field.vegetationDensity = std::clamp(0.900f + regionalDensity * 0.055f +
+                                         signedUnit(blockBase >> 9) * 0.015f,
+                                         0.88f, 0.975f);
+    field.vegetationHeightScale = 0.88f + regionalHeight * 0.20f +
+                                  signedUnit(blockBase >> 15) * 0.025f;
+    field.paletteFamily = static_cast<std::uint8_t>(std::min(3, static_cast<int>(regionalTone * 4.0f)));
 
     const float age = std::max(worldAgeSeconds, 0.0f);
     const float mature = std::min(std::floor(age / 64.0f), 2.0f) * 0.035f;
@@ -113,26 +143,30 @@ SurfaceReliefField SurfaceRelief::grassTop(std::uint32_t worldSeed, BlockCoord b
     for (int v = 0; v < SurfaceReliefField::resolution; ++v) {
         for (int u = 0; u < SurfaceReliefField::resolution; ++u) {
             const std::uint32_t h = hashCell(blockBase, u, v);
+            const std::uint32_t warp = hashCell(blockBase ^ 0xb5297a4du, v, u);
             SurfaceCell cell;
             cell.stableId = static_cast<std::uint16_t>(h & 0xffffu);
             cell.colorFamily = static_cast<std::uint8_t>((field.paletteFamily + ((h >> 17) & 3u)) & 3u);
-            cell.cavity = ((h >> 6) % 17u) == 0u;
+            cell.cavity = ((h >> 6) % 19u) == 0u;
             cell.relief = cell.cavity ? ReliefClass::Cavity : ReliefClass::Turf;
             cell.heightOffset = cell.cavity
-                ? 0.0015f + unit(h >> 10) * 0.0045f
-                : 0.008f + unit(h >> 10) * 0.020f;
+                ? 0.0015f + unit(h >> 10) * 0.0040f
+                : 0.0060f + unit(h >> 10) * 0.0220f;
             cell.occupied = true;
 
-            // The material cell stays tiled; only its attached vegetation shifts within the cell.
-            // This preserves crisp constructed turf while destroying long world-space blade rows.
-            cell.vegetationOffsetU = signedUnit(h >> 4) * 0.020f;
-            cell.vegetationOffsetV = signedUnit(h >> 13) * 0.020f;
+            // A 16x16 address still maps cleanly to physical micro voxels, but the vegetation anchor
+            // is allowed to roam through almost half of its cell. The extra cross-axis warp destroys
+            // the visible lattice/row phase without turning the turf into unbounded random noise.
+            const float jitterU = signedUnit(h >> 4) * 0.0215f + signedUnit(warp >> 8) * 0.0080f;
+            const float jitterV = signedUnit(h >> 13) * 0.0215f + signedUnit(warp >> 17) * 0.0080f;
+            cell.vegetationOffsetU = std::clamp(jitterU, -0.0280f, 0.0280f);
+            cell.vegetationOffsetV = std::clamp(jitterV, -0.0280f, 0.0280f);
 
             const float vegetationRoll = unit(h >> 20);
             if (vegetationRoll <= field.vegetationDensity) {
                 cell.vegetation = profileFor(h, cell.bladeCount);
-                const float localVariation = 0.80f + unit(h >> 8) * 0.40f;
-                cell.bladeHeight = (0.038f + unit(h >> 15) * 0.042f) *
+                const float localVariation = 0.76f + unit(h >> 8) * 0.46f;
+                cell.bladeHeight = (0.034f + unit(h >> 15) * 0.046f) *
                                    field.vegetationHeightScale * localVariation * (1.0f + mature);
             }
 
@@ -147,7 +181,8 @@ SurfaceReliefField SurfaceRelief::soilSide(std::uint32_t worldSeed, BlockCoord b
     SurfaceReliefField field;
     const std::uint32_t faceSalt = 0x3c6ef372u + static_cast<std::uint32_t>(face) * 0x9e3779b9u;
     const std::uint32_t base = hashBlock(worldSeed, block, faceSalt);
-    field.paletteFamily = static_cast<std::uint8_t>((base >> 18) & 3u);
+    const float regionalTone = regionalValue(worldSeed, block, faceSalt ^ 0x68e31da4u, 9);
+    field.paletteFamily = static_cast<std::uint8_t>(std::min(3, static_cast<int>(regionalTone * 4.0f)));
 
     for (int v = 0; v < SurfaceReliefField::resolution; ++v) {
         for (int u = 0; u < SurfaceReliefField::resolution; ++u) {
@@ -159,26 +194,28 @@ SurfaceReliefField SurfaceRelief::soilSide(std::uint32_t worldSeed, BlockCoord b
             const int irregularLip = 2 + static_cast<int>((hashCell(base ^ 0x8da6b343u, u, 0) >> 7) % 3u);
             const bool turfLip = includeTurfLip && v >= SurfaceReliefField::resolution - irregularLip;
             const bool root = includeTurfLip && !turfLip && rootCell(base, u, v);
-            const bool mineral = !turfLip && !root && ((h >> 11) % 43u) == 0u;
-            const bool cavity = !turfLip && !root && !mineral && ((h >> 5) % 9u) == 0u;
+            const bool mineral = !turfLip && !root && ((h >> 11) % 47u) == 0u;
+            const bool cavity = !turfLip && !root && !mineral && ((h >> 5) % 11u) == 0u;
 
             if (turfLip) {
                 cell.relief = ReliefClass::Turf;
-                cell.heightOffset = 0.012f + unit(h >> 8) * 0.022f;
+                cell.heightOffset = 0.008f + unit(h >> 8) * 0.018f;
             } else if (root) {
+                // Root cells are path/address markers. The mesher now draws a narrow fiber over a
+                // normal soil plate instead of extruding an entire 1/16-cell brown column.
                 cell.relief = ReliefClass::Root;
-                cell.heightOffset = 0.028f + unit(h >> 8) * 0.028f;
+                cell.heightOffset = 0.009f + unit(h >> 8) * 0.012f;
             } else if (mineral) {
                 cell.relief = ReliefClass::Mineral;
-                cell.heightOffset = 0.018f + unit(h >> 8) * 0.020f;
+                cell.heightOffset = 0.010f + unit(h >> 8) * 0.017f;
             } else if (cavity) {
                 cell.relief = ReliefClass::Cavity;
                 cell.cavity = true;
-                cell.occupied = false; // The macro face behind the omitted cell is the recess floor.
+                cell.occupied = false;
                 cell.heightOffset = 0.001f;
             } else {
                 cell.relief = ReliefClass::SoilClod;
-                cell.heightOffset = 0.007f + unit(h >> 8) * 0.030f;
+                cell.heightOffset = 0.004f + unit(h >> 8) * 0.021f;
             }
 
             field.cells[static_cast<std::size_t>(u + v * SurfaceReliefField::resolution)] = cell;
