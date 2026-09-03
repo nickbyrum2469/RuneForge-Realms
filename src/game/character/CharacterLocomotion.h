@@ -38,10 +38,28 @@ inline constexpr float gaitTau = gaitPi * 2.0f;
     return 1.0f - stance * 2.0f;
 }
 
+// Vertical recovery is a separate eased arch. The old max(sin(phase), 0) lift had
+// non-zero vertical velocity at toe-off and touchdown, so the foot could visibly snap
+// away from or into the ground even though the stance path itself was planted. This
+// quartic pulse keeps the same airborne half-cycle and peak height while reaching zero
+// lift with zero slope at both contacts; the entire stance half remains exactly planted.
+[[nodiscard]] inline constexpr float airborneLiftUnitFromCycle(float cycle01) noexcept {
+    if (cycle01 <= 0.0f || cycle01 >= 0.5f) return 0.0f;
+    const float t = cycle01 * 2.0f;
+    const float oneMinusT = 1.0f - t;
+    return 16.0f * t * t * oneMinusT * oneMinusT;
+}
+
 [[nodiscard]] inline float plantedStrideUnit(float phase) noexcept {
     float wrapped = std::fmod(phase, gaitTau);
     if (wrapped < 0.0f) wrapped += gaitTau;
     return plantedStrideUnitFromCycle(wrapped / gaitTau);
+}
+
+[[nodiscard]] inline float airborneLiftUnit(float phase) noexcept {
+    float wrapped = std::fmod(phase, gaitTau);
+    if (wrapped < 0.0f) wrapped += gaitTau;
+    return airborneLiftUnitFromCycle(wrapped / gaitTau);
 }
 
 [[nodiscard]] inline float rightFootTravel(float phase) noexcept {
@@ -52,6 +70,14 @@ inline constexpr float gaitTau = gaitPi * 2.0f;
     return footStrideHalfTravel * plantedStrideUnit(phase + gaitPi);
 }
 
+[[nodiscard]] inline float rightFootLiftUnit(float phase) noexcept {
+    return airborneLiftUnit(phase);
+}
+
+[[nodiscard]] inline float leftFootLiftUnit(float phase) noexcept {
+    return airborneLiftUnit(phase + gaitPi);
+}
+
 // Compile-time gait-shape regression: recovery and stance must join continuously at
 // their extrema, and the planted half-cycle must progress front -> center -> rear.
 static_assert(plantedStrideUnitFromCycle(0.0f) == -1.0f);
@@ -60,5 +86,15 @@ static_assert(plantedStrideUnitFromCycle(0.75f) == 0.0f);
 static_assert(plantedStrideUnitFromCycle(1.0f) == -1.0f);
 static_assert(plantedStrideUnitFromCycle(0.625f) > plantedStrideUnitFromCycle(0.750f));
 static_assert(plantedStrideUnitFromCycle(0.750f) > plantedStrideUnitFromCycle(0.875f));
+
+// Contact regression for the vertical foot path: toe-off/touchdown and the complete
+// planted half-cycle stay at zero height, while the middle of recovery reaches one
+// normalized peak. Symmetric quarter points protect the eased arch from skewing.
+static_assert(airborneLiftUnitFromCycle(0.0f) == 0.0f);
+static_assert(airborneLiftUnitFromCycle(0.25f) == 1.0f);
+static_assert(airborneLiftUnitFromCycle(0.5f) == 0.0f);
+static_assert(airborneLiftUnitFromCycle(0.75f) == 0.0f);
+static_assert(airborneLiftUnitFromCycle(0.125f) == airborneLiftUnitFromCycle(0.375f));
+static_assert(airborneLiftUnitFromCycle(0.125f) > 0.0f);
 
 } // namespace rf::game::character

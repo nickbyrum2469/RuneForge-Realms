@@ -203,16 +203,22 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
     const Vec3 rightHip = pose.pelvis + pose.right * 0.135f + pose.forward * hipTwist;
     const Vec3 leftHip = pose.pelvis - pose.right * 0.135f - pose.forward * hipTwist;
     const float crouchFootSpread = crouch * 0.045f;
-    const float rightLift = locomotion * std::max(walk, 0.0f) * 0.052f;
-    const float leftLift = locomotion * std::max(-walk, 0.0f) * 0.052f;
+
+    // Keep the established 5.2 cm peak clearance, but ease the airborne foot into and out of contact.
+    // The quartic recovery pulse is exactly zero through stance and has zero slope at toe-off/touchdown,
+    // eliminating the vertical snap produced by max(sin(phase), 0) without changing gait cadence,
+    // fore/aft stance travel, pelvis transfer or any fixed anatomical segment length.
+    const float gaitPhase = motion ? motion->locomotionPhase : 0.0f;
+    const float rightLift = locomotion * rightFootLiftUnit(gaitPhase) * 0.052f;
+    const float leftLift = locomotion * leftFootLiftUnit(gaitPhase) * 0.052f;
 
     // Keep the prior 0.195 m stride amplitude, but use a stance-aware path instead of sin(phase).
     // During the grounded half-cycle each ankle now moves monotonically front -> rear while the root
     // advances. The old sinusoid reversed direction during late stance, visibly scrubbing the planted
     // foot forward before toe-off. Recovery remains eased while that foot is lifted.
     constexpr float referenceAnkleHalfSpan = 0.165f;
-    const float rightTravel = locomotion * rightFootTravel(motion ? motion->locomotionPhase : 0.0f);
-    const float leftTravel = locomotion * leftFootTravel(motion ? motion->locomotionPhase : 0.0f);
+    const float rightTravel = locomotion * rightFootTravel(gaitPhase);
+    const float leftTravel = locomotion * leftFootTravel(gaitPhase);
     const Vec3 rightAnkle = feet + pose.right * (referenceAnkleHalfSpan + crouchFootSpread) +
                             pose.forward * (crouch * 0.09f + rightTravel) +
                             pose.up * (0.075f + rightLift);
