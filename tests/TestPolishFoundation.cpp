@@ -7,6 +7,7 @@
 #include "game/mining/MiningCadence.h"
 #include "game/mining/MiningSystem.h"
 #include "game/particles/ParticleSystem.h"
+#include "updater/PowerShellLiteral.h"
 #include "world/Block.h"
 #include "world/FrontierWorld.h"
 #include "world/blocks/BlockRegistry.h"
@@ -100,6 +101,15 @@ void runPolishFoundationTests() {
     assert(settings.mouseSensitivity == 2.50f);
     assert(settings.fovDegrees == 65.0f);
     assert(settings.foliageQuality == 2);
+
+    // The bootstrapper invokes Expand-Archive through PowerShell. Paths can legally contain an
+    // apostrophe (for example a Windows profile named O'Neil), so they must be encoded as a valid
+    // PowerShell single-quoted literal rather than spliced raw into -Command.
+    assert(updater::powerShellSingleQuotedLiteral(L"") == L"''");
+    assert(updater::powerShellSingleQuotedLiteral(L"C:\\Users\\Nick\\game.zip") ==
+           L"'C:\\Users\\Nick\\game.zip'");
+    assert(updater::powerShellSingleQuotedLiteral(L"C:\\Users\\O'Neil\\RuneForge Realms\\update.zip") ==
+           L"'C:\\Users\\O''Neil\\RuneForge Realms\\update.zip'");
 
     assert(world::isRenderable(world::BlockId::Water));
     assert(!world::isCollidable(world::BlockId::Water));
