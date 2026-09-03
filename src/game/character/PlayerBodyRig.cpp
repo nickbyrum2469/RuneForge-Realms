@@ -182,13 +182,17 @@ PlayerBodyPose PlayerBodyRig::solve(Vec3 feet,
     const Vec3 leftHip = pose.pelvis - pose.right * 0.135f - pose.forward * hipTwist;
     const float crouchFootSpread = crouch * 0.045f;
 
-    // Distance-driven gait keeps planted feet moving monotonically backward relative to the root;
-    // the eased lift pulse has zero vertical slope at toe-off/touchdown so feet do not snap.
-    const float rightLift = locomotion * rightFootLiftUnit(phase) * 0.052f;
-    const float leftLift = locomotion * leftFootLiftUnit(phase) * 0.052f;
+    // The eased recovery path crosses the body center halfway through the airborne phase, while the
+    // torso/arm weight-transfer signal reaches its maximum at pi/2. Lead the foot path by 30 degrees
+    // so the airborne leg is visibly forward when the opposite arm and planted-leg weight transfer
+    // are at their strongest. This preserves the planted monotonic stance path and zero-slope
+    // toe-off/touchdown while keeping the whole gait synchronized instead of looking disconnected.
+    const float footPhase = phase + gaitPi / 6.0f;
+    const float rightLift = locomotion * rightFootLiftUnit(footPhase) * 0.052f;
+    const float leftLift = locomotion * leftFootLiftUnit(footPhase) * 0.052f;
     constexpr float referenceAnkleHalfSpan = 0.165f;
-    const float rightTravel = locomotion * rightFootTravel(phase);
-    const float leftTravel = locomotion * leftFootTravel(phase);
+    const float rightTravel = locomotion * rightFootTravel(footPhase);
+    const float leftTravel = locomotion * leftFootTravel(footPhase);
     const Vec3 rightAnkle = feet + pose.right * (referenceAnkleHalfSpan + crouchFootSpread) +
                             pose.forward * (crouch * 0.09f + rightTravel) +
                             pose.up * (0.075f + rightLift);
