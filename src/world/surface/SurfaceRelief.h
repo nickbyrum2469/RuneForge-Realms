@@ -3,6 +3,7 @@
 #include "world/WorldEdit.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace rf::world::surface {
@@ -63,6 +64,8 @@ struct SurfaceReliefField {
 
 struct SurfaceReliefBudget {
     int cellStride{1};
+    std::uint16_t maxTopReliefCells{};
+    std::uint16_t maxSideReliefCells{};
     std::uint16_t maxVegetationCells{};
     bool emitTopRelief{true};
     bool emitSideRelief{true};
@@ -71,9 +74,9 @@ struct SurfaceReliefBudget {
 
 class SurfaceRelief {
 public:
-    // 16 visual cells per block face is the initial reference-density target. It also maps exactly
-    // 2x2 visual cells onto each existing 8x8 physical micro voxel, preserving a stable future
-    // damage/promotion address without making each visual cell gameplay state.
+    // 16 visual cells per block face is the first production density target. It maps exactly 2x2
+    // visual cells onto each existing 8x8 physical micro voxel, preserving a stable future
+    // damage/promotion address without making each visual cell heavyweight gameplay state.
     static constexpr int visualResolution = SurfaceReliefField::resolution;
     static constexpr int visualCellsPerMicroVoxel = 2;
 
@@ -88,13 +91,13 @@ public:
     }
 
     [[nodiscard]] static constexpr SurfaceReliefBudget heroBudget() noexcept {
-        return {1, 196, true, true, true};
+        return {1, 48, 80, 96, true, true, true};
     }
     [[nodiscard]] static constexpr SurfaceReliefBudget standardBudget() noexcept {
-        return {2, 56, true, true, true};
+        return {2, 20, 28, 32, true, true, true};
     }
     [[nodiscard]] static constexpr SurfaceReliefBudget distantBudget() noexcept {
-        return {4, 0, false, false, false};
+        return {4, 0, 0, 0, false, false, false};
     }
 };
 
