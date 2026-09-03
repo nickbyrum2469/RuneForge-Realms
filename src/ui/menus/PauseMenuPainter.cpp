@@ -2,37 +2,40 @@
 
 #include "ui/menus/PauseMenuPainter.h"
 
+#include "ui/theme/RuneForgeChrome.h"
 #include "ui/theme/RuneForgePalette.h"
 
 namespace rf::ui::menus {
-namespace {
-using rf::ui::theme::color;
-
-void button(native::NativeUiSurface& surface, native::UiRect rect, const wchar_t* label) {
-    surface.fill(rect, color(theme::PanelRaised, 0.98f), 8);
-    surface.stroke(rect, color(theme::BronzeDark, 0.96f), 5.0f, 8);
-    surface.stroke({rect.x + 5, rect.y + 5, rect.w - 10, rect.h - 10}, color(theme::Gold, 0.72f), 1.4f, 6);
-    surface.text(label, rect, surface.headingFormat(), color(theme::Ivory));
-}
-}
 
 void PauseMenuPainter::draw() {
+    using namespace rf::ui::theme;
     if (!surface_.begin()) return;
-    surface_.fill({0,0,1600,900}, color(0x04070d));
-    surface_.fill({0,0,1600,900}, color(0x142238, 0.32f));
-    surface_.fill({480,105,640,635}, color(theme::Panel, 0.985f), 18);
-    surface_.stroke({480,105,640,635}, color(theme::BronzeDark, 0.98f), 8.0f, 18);
-    surface_.stroke({491,116,618,613}, color(theme::Gold, 0.76f), 1.7f, 13);
-    surface_.fill({565,145,470,82}, color(0x101927, 0.98f), 12);
-    surface_.stroke({565,145,470,82}, color(theme::Gold, 0.85f), 2.0f, 12);
-    surface_.text(L"RUNEFORGE REALMS", {565,146,470,44}, surface_.titleFormat(), color(theme::Ivory));
-    surface_.text(L"FRONTIER REALMS  /  PAUSED", {565,190,470,28}, surface_.smallFormat(), color(theme::BlueGlow));
 
-    button(surface_, resume_, L"RESUME");
-    button(surface_, settings_, L"SETTINGS");
-    button(surface_, mainMenu_, L"SAVE & RETURN TO MAIN MENU");
-    button(surface_, quit_, L"SAVE & QUIT");
-    surface_.text(L"ESC  RESUME", {600,660,400,30}, surface_.smallFormat(), color(theme::Muted));
+    // The modal owns a separate DWM surface, so paint an intentional dark game-menu backdrop rather
+    // than the flat blue developer screen. Layered silhouettes echo the supplied sunset-menu framing.
+    surface_.fill({0, 0, 1600, 900}, color(Void));
+    surface_.fill({0, 0, 1600, 235}, color(0x10141b, 0.94f));
+    surface_.fill({0, 650, 1600, 250}, color(0x05070a, 0.98f));
+    for (int i = 0; i < 8; ++i) {
+        const float x = static_cast<float>(i) * 220.0f - 70.0f;
+        const float h = 90.0f + static_cast<float>((i * 37) % 90);
+        surface_.fill({x, 650.0f - h, 165.0f, h}, color(0x0b1016, 0.72f));
+    }
+
+    const native::UiRect frame{495, 82, 610, 690};
+    carvedPanel(surface_, frame, 7.0f);
+    titlePlaque(surface_, {530, 112, 540, 138}, L"RUNEFORGE", L"REALMS  /  FRONTIER PAUSED");
+
+    divider(surface_, 555, 1045, 282);
+    menuButton(surface_, resume_, L"RESUME");
+    menuButton(surface_, settings_, L"SETTINGS");
+    menuButton(surface_, mainMenu_, L"SAVE & RETURN TO REALMS");
+    menuButton(surface_, quit_, L"SAVE & QUIT", true);
+
+    divider(surface_, 555, 1045, 672);
+    surface_.text(L"ESC  RETURN TO FRONTIER", {585, 697, 430, 26}, surface_.smallFormat(), color(Muted));
+    surface_.text(L"RUNE FORGED. WORLD REMEMBERED.", {585, 724, 430, 22}, surface_.smallFormat(), color(Gold, 0.72f));
+
     surface_.end();
 }
 
