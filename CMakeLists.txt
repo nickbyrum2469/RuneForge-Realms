@@ -25,6 +25,7 @@ add_library(runeforge_core STATIC
     src/world/micro/MicroVoxelEdit.cpp
     src/world/meshing/MicroVoxelMesher.cpp
     src/world/meshing/MicroDetailBuilder.cpp
+    src/world/surface/SurfaceRelief.cpp
     src/world/growth/GrassGrowth.cpp
     src/world/FrontierWorld.cpp
     src/game/PlayerController.cpp
@@ -238,6 +239,7 @@ if(RF_BUILD_TESTS)
         tests/TestWorld.cpp
         tests/TestMicroMining.cpp
         tests/TestInventoryGrowth.cpp
+        tests/TestSurfaceRelief.cpp
         tests/TestDrops.cpp
         tests/TestPolishFoundation.cpp
         tests/TestCharacterRig.cpp
