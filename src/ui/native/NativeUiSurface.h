@@ -35,6 +35,9 @@ public:
 
     void fill(UiRect rect, D2D1_COLOR_F color, float radius = 0.0f);
     void stroke(UiRect rect, D2D1_COLOR_F color, float thickness = 1.0f, float radius = 0.0f);
+    void line(float x0, float y0, float x1, float y1, D2D1_COLOR_F color, float thickness = 1.0f);
+    void diamond(float cx, float cy, float radius, D2D1_COLOR_F fillColor,
+                 D2D1_COLOR_F strokeColor, float strokeThickness = 1.0f);
     void text(std::wstring_view value, UiRect rect, IDWriteTextFormat* format, D2D1_COLOR_F color,
               DWRITE_TEXT_ALIGNMENT alignment = DWRITE_TEXT_ALIGNMENT_CENTER);
 
