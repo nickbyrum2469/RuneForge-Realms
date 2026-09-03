@@ -26,8 +26,10 @@ void NativeUiSurface::createTextFormats() {
             output->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         }
     };
-    make(L"Bahnschrift", 42.0f, DWRITE_FONT_WEIGHT_BLACK, titleFormat_);
-    make(L"Bahnschrift", 21.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, headingFormat_);
+    // Georgia gives the native screens a carved-fantasy title shape much closer to the supplied
+    // RuneForge reference while remaining a standard Windows font. Body copy stays highly legible.
+    make(L"Georgia", 42.0f, DWRITE_FONT_WEIGHT_BOLD, titleFormat_);
+    make(L"Georgia", 21.0f, DWRITE_FONT_WEIGHT_BOLD, headingFormat_);
     make(L"Segoe UI", 15.0f, DWRITE_FONT_WEIGHT_NORMAL, bodyFormat_);
     make(L"Segoe UI", 12.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, smallFormat_);
 }
@@ -79,6 +81,34 @@ void NativeUiSurface::stroke(UiRect rect, D2D1_COLOR_F color, float thickness, f
     const auto r = D2D1::RectF(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
     if (radius > 0.0f) target_->DrawRoundedRectangle(D2D1::RoundedRect(r, radius, radius), brush.Get(), thickness);
     else target_->DrawRectangle(r, brush.Get(), thickness);
+}
+
+void NativeUiSurface::line(float x0, float y0, float x1, float y1, D2D1_COLOR_F color, float thickness) {
+    ComPtr<ID2D1SolidColorBrush> brush;
+    target_->CreateSolidColorBrush(color, brush.ReleaseAndGetAddressOf());
+    target_->DrawLine(D2D1::Point2F(x0, y0), D2D1::Point2F(x1, y1), brush.Get(), thickness);
+}
+
+void NativeUiSurface::diamond(float cx, float cy, float radius, D2D1_COLOR_F fillColor,
+                              D2D1_COLOR_F strokeColor, float strokeThickness) {
+    if (!factory_ || !target_) return;
+    ComPtr<ID2D1PathGeometry> geometry;
+    if (FAILED(factory_->CreatePathGeometry(geometry.ReleaseAndGetAddressOf())) || !geometry) return;
+    ComPtr<ID2D1GeometrySink> sink;
+    if (FAILED(geometry->Open(sink.ReleaseAndGetAddressOf())) || !sink) return;
+    sink->BeginFigure(D2D1::Point2F(cx, cy - radius), D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLine(D2D1::Point2F(cx + radius, cy));
+    sink->AddLine(D2D1::Point2F(cx, cy + radius));
+    sink->AddLine(D2D1::Point2F(cx - radius, cy));
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    sink->Close();
+
+    ComPtr<ID2D1SolidColorBrush> fillBrush;
+    ComPtr<ID2D1SolidColorBrush> strokeBrush;
+    target_->CreateSolidColorBrush(fillColor, fillBrush.ReleaseAndGetAddressOf());
+    target_->CreateSolidColorBrush(strokeColor, strokeBrush.ReleaseAndGetAddressOf());
+    target_->FillGeometry(geometry.Get(), fillBrush.Get());
+    target_->DrawGeometry(geometry.Get(), strokeBrush.Get(), strokeThickness);
 }
 
 void NativeUiSurface::text(std::wstring_view value, UiRect rect, IDWriteTextFormat* format,
